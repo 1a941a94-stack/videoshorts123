@@ -6,22 +6,7 @@ def extract(url):
     with yt_dlp.YoutubeDL({'quiet': True, 'skip_download': True, 'noplaylist': True}) as ydl:
         return ydl.extract_info(url, download=False)
 
-def select(info, length=45, count=3, threshold=.7):
-    duration=float(info.get('duration') or 0)
-    if duration < length: return []
-    points=sorted(info.get('heatmap') or [], key=lambda p:p['start_time'])
-    peaks=[]
-    for i,p in enumerate(points):
-        v=p['value']
-        if v<threshold or (i and v<points[i-1]['value']) or (i+1<len(points) and v<points[i+1]['value']): continue
-        center=(p['start_time']+p['end_time'])/2
-        start=max(0,min(duration-length,center-length*.4))
-        peaks.append({'start':round(start,3),'end':round(start+length,3),'score':v})
-    chosen=[]
-    for p in sorted(peaks,key=lambda x:x['score'],reverse=True):
-        if all(p['end']<=q['start'] or p['start']>=q['end'] for q in chosen): chosen.append(p)
-        if len(chosen)>=count: break
-    return chosen
+from highlights import select
 
 def render(source, start, end, output, banner=None):
     vf='[0:v]scale=1080:1920:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1'
