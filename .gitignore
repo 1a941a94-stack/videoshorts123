@@ -5,3 +5,7 @@ output/
 .env
 cookies*.txt
 *.mp4
+
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
