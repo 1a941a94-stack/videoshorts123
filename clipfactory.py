@@ -10,6 +10,12 @@ from highlights import select
 
 def render(source, start, end, output, banner=None):
     vf='[0:v]scale=1080:1920:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1'
+    from framing import plan
+    try:
+        adaptive=plan(source,start,end)
+        if adaptive: vf='[0:v]'+adaptive
+    except Exception as exc:
+        print(f'Framing fallback: {exc}',file=sys.stderr)
     cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-ss',str(start),'-i',str(source)]
     if banner:
         cmd += ['-i',str(banner)]
