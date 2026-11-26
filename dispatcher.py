@@ -26,6 +26,8 @@ def profile_env(root,name,account,templates):
         'CLIP_CAPTION_MARGIN':str(account['caption_margin']),'CLIP_CAMPAIGN_NAME':account['campaign'],
         'CLIP_COVER_MODE':account.get('cover_mode','auto'),'CLIP_COVER_TITLE':account.get('cover_title') or account.get('handle',''),
         'CLIP_COVER_COLOR':account.get('cover_color','#172536'),'CLIP_SHORT_BACKGROUND':''}
+    from caption_style import from_account
+    values['CLIP_CAPTION_STYLE']=json.dumps(from_account(account))
     if spec['background']:
         path=root/'assets'/'backgrounds'/spec['background']
         if not path.is_file(): raise ValueError('Background missing')
