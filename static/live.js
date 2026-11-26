@@ -33,6 +33,8 @@ async function poll(){
   const html=await fetch(location.pathname+location.search,{cache:'no-store'}).then(r=>r.text());
   const doc=new DOMParser().parseFromString(html,'text/html');
   for(const id of ['videos','clips','telegram']){const old=$(id).querySelector('.table'),fresh=doc.getElementById(id).querySelector('.table');if(old&&fresh)old.replaceWith(fresh)}
+  const gallery=$('gallery-items'),freshGallery=doc.getElementById('gallery-items');
+  if(gallery&&freshGallery){const selected=new Set([...gallery.querySelectorAll('input:checked')].map(x=>x.value));gallery.replaceChildren(...freshGallery.children);gallery.querySelectorAll('input[name="ids"]').forEach(x=>x.checked=selected.has(x.value));}
   window.dispatchEvent(new Event('clip-library-refresh'));
  }
  priorRunning=d.running;initial=false;
