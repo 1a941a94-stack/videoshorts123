@@ -22,6 +22,7 @@ def init(db):
       views INTEGER NOT NULL DEFAULT 0, accepted_views INTEGER NOT NULL DEFAULT 0,
       revenue_kopecks INTEGER NOT NULL DEFAULT 0, measured INTEGER NOT NULL);
     """)
+    db.execute('BEGIN IMMEDIATE')
     with db:
         cols={r[1] for r in db.execute('PRAGMA table_info(accounts)')}
         for name,kind in [('production_profile','TEXT'),('auto_queue','INTEGER NOT NULL DEFAULT 0'),('caption_template',"TEXT NOT NULL DEFAULT ''")]:
@@ -50,6 +51,7 @@ def sync_ready(db,now=None):
     """Queue only explicitly opted-in accounts, matching their production profile."""
     now=int(time.time()) if now is None else int(now)
     count=0
+    db.execute('BEGIN IMMEDIATE')
     with db:
         accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform IN ('telegram','instagram','instagram_browser') AND production_profile IS NOT NULL").fetchall()
         for a in accounts:
@@ -83,7 +85,7 @@ def claim(db,now):
         JOIN accounts a ON a.id=p.account_id JOIN clips c ON c.id=p.clip_id
         WHERE p.status='approved' AND a.enabled=1 AND p.scheduled<=? AND c.status='done'
         AND a.platform IN ('telegram','instagram','instagram_browser')
-        AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sending','uncertain','browser_blocked'))
+        AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sending','uncertain','browser_blocked','blocked'))
         AND (SELECT count(*) FROM publications q WHERE q.account_id=a.id AND q.status='sent' AND q.updated>?)<a.daily_limit
         AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status='sent' AND q.updated>?-a.interval_seconds)
         ORDER BY p.scheduled,p.id LIMIT 1""",(now,now-86400,now)).fetchone()
@@ -149,6 +151,7 @@ def main():
     a=sub.add_parser('draft'); a.add_argument('account',type=int); a.add_argument('clip',type=int); a.add_argument('caption'); a.add_argument('--scheduled',type=int,default=0)
     a=sub.add_parser('approve'); a.add_argument('id',type=int)
     sub.add_parser('send')
+    sub.add_parser('stop')
     sub.add_parser('sync')
     sub.add_parser('run')
     sub.add_parser('status')
@@ -161,15 +164,20 @@ def main():
             with db: db.execute('UPDATE accounts SET enabled=? WHERE id=?',(int(not args.off),args.id))
         elif args.action=='draft': enqueue(db,args.account,args.clip,args.caption,args.scheduled or int(time.time()))
         elif args.action=='approve': print(approve(db,args.id))
+        elif args.action=='stop': (root/'publication.stop').touch()
         elif args.action=='sync': print(sync_ready(db))
         elif args.action in ('send','run'):
             with FileLock(str(root/'publication.lock'),timeout=0):
                 with db: db.execute("UPDATE publications SET status='uncertain',error='Interrupted upload; reconcile manually' WHERE status='sending'")
-                while True:
+                stop=root/'publication.stop'
+                if args.action=='run': stop.unlink(missing_ok=True)
+                while not stop.exists():
                     if args.action=='run': sync_ready(db)
-                    while send_one(db,root): pass
+                    while not stop.exists() and send_one(db,root): pass
                     if args.action=='send': break
-                    time.sleep(30)
+                    for _ in range(30):
+                        if stop.exists(): break
+                        time.sleep(1)
         elif args.action=='measure': measure(db,args.id,args.views,args.accepted,args.kopecks)
         else:
             for table in ('accounts','publications','measurements'):
