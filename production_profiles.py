@@ -20,6 +20,10 @@ def save(root,name,form,templates,campaigns):
     font_size=int(form.get('font_size',64))
     margin=int(form.get('caption_margin',480))
     if not 20<=font_size<=120 or not 0<=margin<=1400: raise ValueError('Invalid subtitles')
+    from caption_style import from_form
+    caption_style=from_form(form)
+    if 'sub_size' not in form: caption_style['size']=font_size
+    if 'sub_margin' not in form: caption_style['margin']=margin
     cover_mode=form.get('cover_mode','auto')
     cover_title=form.get('cover_title','').strip()
     cover_color=form.get('cover_color','#172536')
@@ -30,7 +34,7 @@ def save(root,name,form,templates,campaigns):
     profiles=load(root)
     if len(profiles)>=100 and name not in profiles: raise ValueError('Profile limit')
     profiles[name]=dict(platform=platform,handle=handle,template=template,campaign=campaign,
-        captions=form.get('captions')=='1',font_size=font_size,caption_margin=margin,cover_mode=cover_mode,cover_title=cover_title,cover_color=cover_color,daily_limit=daily_limit,priority=priority,enabled=form.get('enabled','1')=='1')
+        captions=form.get('captions')=='1',caption_style=caption_style,font_size=font_size,caption_margin=margin,cover_mode=cover_mode,cover_title=cover_title,cover_color=cover_color,daily_limit=daily_limit,priority=priority,enabled=form.get('enabled','1')=='1')
     path=Path(root)/'production-profiles.json'
     temp=path.with_suffix('.tmp')
     temp.write_text(json.dumps(profiles,ensure_ascii=False,indent=2),encoding='utf-8')
