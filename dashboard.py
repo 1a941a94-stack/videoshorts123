@@ -26,6 +26,7 @@ def create_app(root=ROOT):
     campaigns=root/'campaigns.json'
     assets=root/'assets'
     lock=threading.Lock()
+    preview_lock=threading.Lock()
     publisher={'process':None}
     job={'process':None,'action':None,'log':None,'started':None,'finished':None}
 
@@ -211,6 +212,47 @@ def create_app(root=ROOT):
             try: save(root,request.form.get('name',''),request.form,load(root),[c['name'] for c in read_json(campaigns,{'campaigns':[]})['campaigns']])
             except ValueError as exc: abort(400,str(exc))
         return redirect(url_for('index')+'#production-profiles')
+
+    @app.post('/short-preview')
+    def short_preview():
+        import tempfile
+        from io import BytesIO
+        from short_templates import validate
+        from short_media import render_short
+        from quality import inspect,verify
+        from banners import choose
+        if not preview_lock.acquire(blocking=False): abort(409,'Preview already running')
+        try:
+            spec=validate(request.form)
+            background=''
+            if spec['background']:
+                p=assets/'backgrounds'/spec['background']
+                if not p.is_file(): abort(400,'Background missing')
+                background=str(p)
+            with tempfile.TemporaryDirectory() as folder:
+                folder=Path(folder)
+                source=folder/'source.mp4'
+                result=folder/'preview.mp4'
+                upload=request.files.get('preview_source')
+                if upload and upload.filename:
+                    if Path(upload.filename).suffix.lower() not in ('.mp4','.mov','.webm','.mkv'): abort(400,'Unsupported source format')
+                    upload.save(source)
+                else:
+                    subprocess.run(['ffmpeg','-v','error','-y','-f','lavfi','-i','testsrc2=size=640x360:rate=30','-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','5','-c:v','libx264','-threads','2','-c:a','aac',str(source)],check=True,timeout=30)
+                meta=inspect(source)
+                streams=meta.get('streams',[])
+                video=next((s for s in streams if s.get('codec_type')=='video'),None)
+                if not video or max(int(video['width']),int(video['height']))>4096: abort(400,'Invalid source dimensions')
+                duration=min(5,float(meta['format']['duration']))
+                if not .5<=duration<=5: abort(400,'Source must contain at least 0.5 seconds')
+                name=request.form.get('preview_campaign','')
+                banner=choose(campaigns,duration,campaign=name) if name else None
+                render_short(source,duration,result,banner,template=spec,background_path=background,captions=False)
+                verify(result,duration,any(s.get('codec_type')=='audio' for s in streams))
+                return send_file(BytesIO(result.read_bytes()),mimetype='video/mp4',download_name='preview.mp4',max_age=0)
+        except (ValueError,KeyError,OSError,subprocess.SubprocessError):
+            abort(400,'Preview failed: check video, template and campaign timing')
+        finally: preview_lock.release()
 
     @app.post('/short-profiles')
     def save_short_profile():
