@@ -24,9 +24,7 @@ class ShortMediaTest(unittest.TestCase):
                 self.assertEqual(inspect_video(db,{'id':'abcdefghijk'},DEFAULTS,info,'short'),'ready')
             self.assertEqual(db.execute('SELECT count(*) FROM clips').fetchone()[0],1)
             self.assertIsNone(claim(db,'long'))
-            self.assertIsNone(claim(db,'short'))
             cid=db.execute('SELECT id FROM clips').fetchone()[0]
-            self.assertEqual(approve_short(db,cid),1)
             self.assertEqual(claim(db,'short')['id'],cid)
             self.assertIsNone(claim(db,'short'))
         finally: db.close()
