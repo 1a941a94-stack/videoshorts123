@@ -22,9 +22,9 @@ def render_short(source,duration,output,banner=None):
     if layout not in ('circle','rectangle'): raise ValueError('Invalid short layout')
     background=os.getenv('CLIP_SHORT_BACKGROUND','')
     cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',str(source)]
-    # Keep all input picture content inside the template, no center crop of faces.
+    # Circular mask clips corners; rectangular layout preserves the entire image.
     if layout=='circle':
-        vf="[0:v]scale=960:960:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=960:960:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(hypot(X-480,Y-480),478),255,0)'[fg]"
+        vf="[0:v]scale=960:960:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=960:960:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(sqrt((X-480)*(X-480)+(Y-480)*(Y-480)),478),255,0)'[fg]"
     else:
         vf="[0:v]scale=1000:1000:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1[fg]"
     # Background is optional; otherwise use a dark blue canvas.
@@ -41,7 +41,7 @@ def render_short(source,duration,output,banner=None):
         from dataclasses import replace
         spec=banner if isinstance(banner,Banner) else Banner(Path(banner))
         spec=replace(spec,position='top',margin=160,height=min(spec.height,280))
-        cmd+=['-i',str(spec.path)]
+        cmd+=['-i',str(spec.path.resolve())]
         vf+=spec.filter(duration).replace('[1:v]',f'[{ad_index}:v]')
     else: vf+='[v]'
     with tempfile.TemporaryDirectory() as folder:
