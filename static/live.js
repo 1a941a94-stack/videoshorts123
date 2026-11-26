@@ -30,9 +30,10 @@ async function poll(){
  document.querySelectorAll('.actions button').forEach(b=>b.disabled=d.running);
  if(!initial&&priorRunning&&!d.running){
   // Refresh results only, keeping form inputs and live log intact.
-  const html=await fetch('/',{cache:'no-store'}).then(r=>r.text());
+  const html=await fetch(location.pathname+location.search,{cache:'no-store'}).then(r=>r.text());
   const doc=new DOMParser().parseFromString(html,'text/html');
   for(const id of ['videos','clips','telegram']){const old=$(id).querySelector('.table'),fresh=doc.getElementById(id).querySelector('.table');if(old&&fresh)old.replaceWith(fresh)}
+  window.dispatchEvent(new Event('clip-library-refresh'));
  }
  priorRunning=d.running;initial=false;
  }catch(e){$('live-connection').textContent='Нет связи с сервером';$('live-activity').textContent='Повторяем подключение…';$('live-job').dataset.state='offline'}
