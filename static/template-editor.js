@@ -43,7 +43,7 @@ if(btn&&player&&status)btn.addEventListener('click',async()=>{
   objectUrl=URL.createObjectURL(blob);
   player.src=objectUrl;
   player.hidden=false;
-  status.textContent='Готово: реальные первые 5 секунд (без субтитров).';
+  status.textContent='Готово: до 5 секунд (без субтитров).'+(response.headers.get('X-Banner-Overlap')==='1'?' Внимание: реклама может перекрывать видео.':'');
  }catch(e){status.textContent=e.message;}
  finally{btn.disabled=false;}
 });
