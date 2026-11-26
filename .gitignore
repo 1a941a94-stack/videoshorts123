@@ -34,3 +34,6 @@ factory.stop
 
 publication.stop
 publication-job.log
+
+youtube-sessions/
+client_secrets*.json
