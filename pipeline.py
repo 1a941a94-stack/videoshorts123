@@ -84,11 +84,15 @@ def inspect_video(db, entry, settings, extractor=extract):
 
 def scan(db, settings, finder=discover, extractor=extract):
     counts = {}
-    for src in db.execute("SELECT * FROM sources WHERE enabled=1").fetchall():
+    sources=db.execute("SELECT * FROM sources WHERE enabled=1").fetchall()
+    print(f'CF_PROGRESS 0 {len(sources)}',flush=True)
+    for i,src in enumerate(sources,1):
+        print('CF_STAGE '+json.dumps({'stage':'search','detail':src['query']},ensure_ascii=True),flush=True)
         try:
             entries = finder(src['query'], settings['limit'])
-            for entry in entries:
+            for j,entry in enumerate(entries,1):
                 if not entry: continue
+                print('CF_STAGE '+json.dumps({'stage':'inspect','detail':f'{src["query"]} · {j}/{len(entries)}'},ensure_ascii=True),flush=True)
                 status = inspect_video(db,entry,settings,extractor)
                 counts[status] = counts.get(status,0)+1
                 if status != 'cached': time.sleep(settings['delay'])
@@ -96,6 +100,7 @@ def scan(db, settings, finder=discover, extractor=extract):
                 db.execute("UPDATE sources SET last_scan=? WHERE id=?", (int(time.time()),src['id']))
         except Exception as exc:
             print(json.dumps({'source':src['query'],'error':str(exc)},ensure_ascii=False))
+        print(f'CF_PROGRESS {i} {len(sources)}',flush=True)
     return counts
 
 def claim(db):
@@ -121,12 +126,15 @@ def process(db, out, banner=None, campaigns=None):
     try:
         from banners import choose
         selected=choose(campaigns,row['end']-row['start']) if campaigns else banner
+        print('CF_STAGE '+json.dumps({'stage':'download','detail':f'#{row["id"]} · {row["start"]:.1f}–{row["end"]:.1f} s'},ensure_ascii=True),flush=True)
         download(row['url'],dict(row),raw)
         render(raw,0,row['end']-row['start'],tmp,selected)
+        print('CF_STAGE '+json.dumps({'stage':'save','detail':f'#{row["id"]}'},ensure_ascii=True),flush=True)
         tmp.replace(dest)
         with db:
             db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,row['id']))
     except Exception as exc:
+        print('CF_STAGE '+json.dumps({'stage':'error','detail':f'#{row["id"]}: {str(exc)[:300]}'},ensure_ascii=True),flush=True)
         with db:
             db.execute("UPDATE clips SET status='failed',error=?,updated=? WHERE id=?", (str(exc)[:1000],int(time.time()),row['id']))
     finally:
@@ -168,11 +176,16 @@ def main():
         if args.action=='add': add_source(db,args.query)
         elif args.action=='scan': print(json.dumps(scan(db,settings),ensure_ascii=False))
         elif args.action=='work':
-            for _ in range(args.limit):
+            total=min(args.limit,db.execute("SELECT count(*) FROM clips WHERE status='pending'").fetchone()[0])
+            print(f'CF_PROGRESS 0 {total}',flush=True)
+            for i in range(total):
                 if not process(db,args.out,args.banner,args.campaigns): break
+                print(f'CF_PROGRESS {i+1} {total}',flush=True)
         elif args.action=='retry':
             with db:
-                db.execute("UPDATE clips SET status='pending',updated=? WHERE status='failed' AND attempts<3",(int(time.time()),))
+                n=db.execute("UPDATE clips SET status='pending',updated=? WHERE status='failed' AND attempts<3",(int(time.time()),)).rowcount
+            print('CF_STAGE '+json.dumps({'stage':'retry','detail':str(n)}),flush=True)
+            print('CF_PROGRESS 1 1',flush=True)
         elif args.action=='status':
             for table in ('videos','clips'):
                 print(table,dict(db.execute(f"SELECT status,COUNT(*) FROM {table} GROUP BY status").fetchall()))
