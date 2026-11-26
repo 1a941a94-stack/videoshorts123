@@ -20,7 +20,8 @@ def prepare(root,db,cid,form):
     if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publications'").fetchone():
         if db.execute('SELECT 1 FROM publications WHERE clip_id=? LIMIT 1',(cid,)).fetchone():
             raise ValueError('У видео есть записи публикации')
-    spec=validate(form)
+    previous=settings(root,row)['template']
+    spec=validate({**previous,**dict(form)})
     campaign=form.get('campaign','')
     captions=form.get('captions')=='1'
     cfg=resolve(root,dict(mode='short',template='',campaign=campaign,captions=captions,auto_search=False))
