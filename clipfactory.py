@@ -10,6 +10,7 @@ from highlights import select
 
 def render(source, start, end, output, banner=None):
     vf='[0:v]scale=1080:1920:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1'
+    print('CF_STAGE '+json.dumps({'stage':'framing','detail':''}),flush=True)
     from framing import plan
     try:
         adaptive=plan(source,start,end)
@@ -27,6 +28,7 @@ def render(source, start, end, output, banner=None):
     if os.getenv('CLIP_CAPTIONS','0') == '1':
         from captions import prepare
         with tempfile.TemporaryDirectory() as folder:
+            print('CF_STAGE '+json.dumps({'stage':'captions','detail':''}),flush=True)
             prepare(Path(source).resolve(),start,end,folder)
             # Absolute media paths allow a temporary working directory and simple ASS filename.
             for i,arg in enumerate(cmd[:-1]):
@@ -34,12 +36,14 @@ def render(source, start, end, output, banner=None):
             cmd[-1]=str(Path(output).resolve())
             idx=cmd.index('-filter_complex')+1
             cmd[idx]=cmd[idx].removesuffix('[v]')+'[pre];[pre]ass=captions.ass[v]'
+            print('CF_STAGE '+json.dumps({'stage':'render','detail':''}),flush=True)
             subprocess.run(cmd,check=True,cwd=folder)
     else:
+        print('CF_STAGE '+json.dumps({'stage':'render','detail':''}),flush=True)
         subprocess.run(cmd,check=True)
 
 def download(url, clip, target):
-    subprocess.run([sys.executable,'-m','yt_dlp','--no-playlist','--download-sections',f"*{clip['start']}-{clip['end']}",'--force-keyframes-at-cuts','-f','bv*[height<=1080]+ba/b[height<=1080]','--merge-output-format','mp4','--remux-video','mp4','-o',str(target),url],check=True)
+    subprocess.run([sys.executable,'-m','yt_dlp','--no-playlist','--newline','--download-sections',f"*{clip['start']}-{clip['end']}",'--force-keyframes-at-cuts','-f','bv*[height<=1080]+ba/b[height<=1080]','--merge-output-format','mp4','--remux-video','mp4','-o',str(target),url],check=True)
 
 def main():
     ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='action',required=True)
