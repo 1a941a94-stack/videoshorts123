@@ -137,6 +137,21 @@ def create_app(root=ROOT):
         with lock: save_json(config,values)
         return redirect(url_for('index')+'#settings')
 
+    @app.post('/short-background')
+    def short_background():
+        upload=request.files.get('image')
+        if not upload: abort(400)
+        import cv2
+        import numpy as np
+        image=cv2.imdecode(np.frombuffer(upload.read(),dtype=np.uint8),cv2.IMREAD_COLOR)
+        if image is None or max(image.shape[:2])>8000: abort(400,'Invalid background')
+        assets.mkdir(exist_ok=True)
+        with lock:
+            temp=assets/'short-background.tmp.jpg'
+            if not cv2.imwrite(str(temp),image): abort(400)
+            temp.replace(assets/'short-background.jpg')
+        return redirect(url_for('index')+'#short-template')
+
     @app.post('/campaigns')
     def add_campaign():
         upload=request.files.get('image')
@@ -185,6 +200,10 @@ def create_app(root=ROOT):
             cmd=[sys.executable,'-u',str(ROOT/'pipeline.py'),'--db',str(dbpath)]
             if config.exists(): cmd+=['--config',str(config)]
             cmd.append(action)
+            if action in ('scan','work'):
+                mode=request.form.get('mode','long')
+                if mode not in ('short','long'): abort(400)
+                cmd+=['--mode',mode]
             if action=='work':
                 try: limit=int(request.form.get('limit','10'))
                 except ValueError: abort(400)
@@ -196,6 +215,12 @@ def create_app(root=ROOT):
             env=os.environ.copy()
             env['CLIP_CAPTIONS']='1' if request.form.get('captions')=='1' else '0'
             env['CLIP_SMART_SPEECH']='1' if request.form.get('smart_speech')=='1' else '0'
+            layout=request.form.get('layout','circle')
+            if layout not in ('circle','rectangle'): abort(400)
+            env['CLIP_SHORT_LAYOUT']=layout
+            background=assets/'short-background.jpg'
+            if background.is_file(): env['CLIP_SHORT_BACKGROUND']=str(background)
+            else: env.pop('CLIP_SHORT_BACKGROUND',None)
             log=root/'dashboard-job.log'
             with log.open('wb') as fp:
                 proc=subprocess.Popen(cmd,cwd=root,stdout=fp,stderr=subprocess.STDOUT,env=env)
