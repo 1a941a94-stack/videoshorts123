@@ -23,6 +23,7 @@ function draw(){
 }
 f.addEventListener('input',draw);
 window.addEventListener('resize',draw);
+window.addEventListener('workspace-change',draw);
 document.querySelectorAll('.edit-profile').forEach(btn=>btn.addEventListener('click',()=>{
  const data=JSON.parse(btn.dataset.spec);
  f.elements.name.value=btn.dataset.name;
