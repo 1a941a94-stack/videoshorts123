@@ -134,6 +134,41 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/api/queue')
+    def queue_state():
+        from queue_control import explain
+        db=connect(dbpath)
+        try:
+            rows=db.execute("""SELECT c.*,v.title,v.url FROM clips c JOIN videos v ON v.id=c.video_id
+                WHERE c.status IN ('pending','running','failed','ad_review','duplicate','ad_rejected','cancelled')
+                ORDER BY CASE c.status WHEN 'running' THEN 0 WHEN 'failed' THEN 1 WHEN 'ad_review' THEN 1 WHEN 'pending' THEN 2 ELSE 3 END,c.priority DESC,c.id DESC LIMIT 500""").fetchall()
+            items=[]
+            for row in rows:
+                item={k:row[k] for k in ('id','title','status','priority','attempts','error','ad_result','run_id','mode')}
+                item['source']='Локальный файл' if row['video_id'].startswith('local_') else 'Telegram' if row['video_id'].startswith('tg_') else 'YouTube'
+                item['issue']=explain(row)
+                item['can_retry']=bool(row['task_snapshot']) and item['issue']['retry']
+                items.append(item)
+            counts=dict(db.execute('SELECT status,count(*) FROM clips GROUP BY status'))
+            return jsonify(items=items,counts=counts)
+        finally: db.close()
+
+    @app.post('/queue/<int:cid>/<operation>')
+    def queue_manage(cid,operation):
+        from queue_control import retry_task,queue_action
+        from filelock import FileLock,Timeout
+        with lock:
+            if (job['process'] and job['process'].poll() is None) or preview_lock.locked(): abort(409,'Приостановите производство')
+            db=connect(dbpath)
+            try:
+                with FileLock(str(dbpath)+'.production.lock',timeout=0):
+                    if operation=='retry': run_id=retry_task(db,cid)
+                    else: queue_action(db,cid,operation)
+                if operation=='retry': launch_run(run_id)
+            except (ValueError,Timeout,OSError) as exc: abort(400,str(exc))
+            finally: db.close()
+        return redirect(url_for('index')+'#queue')
+
     @app.get('/api/production')
     def production_state():
         from production_runs import summary
