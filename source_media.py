@@ -94,3 +94,24 @@ def refine(source,start,end,peak):
     a,b,method=boundaries(start,end,peak,duration,points,sentences)
     stage('boundaries',f'{a:.1f}–{b:.1f} s / {method}')
     return a,b,method
+
+def prune_cache(root,exclude=None,max_bytes=5*1024**3,ttl=86400):
+    """Evict old inactive sources; never delete a file being rendered."""
+    from filelock import Timeout
+    root=Path(root)
+    with FileLock(str(root/'eviction.lock'),timeout=30):
+        entries=[]
+        for p in root.glob('*.mp4'):
+            try:
+                s=p.stat()
+                entries.append((s.st_mtime,s.st_size,p))
+            except FileNotFoundError: pass
+        total=sum(size for _,size,_ in entries)
+        for modified,size,p in sorted(entries):
+            if p.stem==exclude: continue
+            if total<=max_bytes and time.time()-modified<ttl: continue
+            try:
+                with FileLock(str(root/(p.stem+'.lock')),timeout=0):
+                    p.unlink(missing_ok=True)
+                    total-=size
+            except (Timeout,OSError): pass
