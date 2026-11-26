@@ -96,19 +96,21 @@ def create_app(root=ROOT):
             sources=db.execute('SELECT * FROM sources ORDER BY id DESC').fetchall()
             telegram_channels=db.execute('SELECT * FROM telegram_channels ORDER BY name').fetchall()
             videos=db.execute('SELECT * FROM videos ORDER BY checked DESC LIMIT 100').fetchall()
-            status=request.args.get('clip_status','all')
+            status=request.args.get('clip_status','done')
             if status not in ('all','done','pending','running','failed','duplicate','ad_review','ad_rejected','archived'): status='all'
             query=request.args.get('q','').strip()[:150]
             page=max(1,min(100000,request.args.get('page',1,type=int)))
             where=[]; params=[]
             if status!='all': where.append('c.status=?'); params.append(status)
             else: where.append("c.status!='archived'")
+            batch_id=request.args.get('batch',type=int)
+            if batch_id and batch_id>0: where.append('EXISTS (SELECT 1 FROM production_run_tasks rt WHERE rt.clip_id=c.id AND rt.run_id=? AND rt.status=\'done\')'); params.append(batch_id)
             if query: where.append("(instr(lower(coalesce(v.title,'')),lower(?))>0 OR cast(c.id as text)=?)"); params.extend([query,query.removeprefix('#')])
             clause=' WHERE '+' AND '.join(where) if where else ''
             base=' FROM clips c JOIN videos v ON v.id=c.video_id'+clause
             clip_count=db.execute('SELECT count(*)'+base,params).fetchone()[0]
             page=min(page,max(1,(clip_count+99)//100))
-            clips=db.execute('SELECT c.*,v.title,v.url'+base+' ORDER BY c.id DESC LIMIT 100 OFFSET ?',(*params,(page-1)*100)).fetchall()
+            clips=db.execute('SELECT c.*,v.title,v.url'+base+' ORDER BY c.updated DESC,c.id DESC LIMIT 100 OFFSET ?',(*params,(page-1)*100)).fetchall()
             stats=dict(db.execute('SELECT status,count(*) FROM clips GROUP BY status').fetchall())
             total=db.execute('SELECT count(*) FROM videos').fetchone()[0]
             from production_runs import summary
@@ -129,7 +131,7 @@ def create_app(root=ROOT):
                     log=fp.read().decode('utf-8','replace')
         return render_template('dashboard.html',sources=sources,telegram_channels=telegram_channels,videos=videos,clips=clips,stats=stats,total=total,
             running=running,result=result,log=log,action=job['action'],csrf=session['csrf'],
-            clip_status=status,clip_query=query,clip_page=page,clip_count=clip_count,
+            clip_status=status,clip_query=query,clip_page=page,clip_count=clip_count,clip_batch=batch_id,
             run_configs=__import__('run_configs').load(root),current_run=current_run,recent=recent,today=today,
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
@@ -754,6 +756,17 @@ def create_app(root=ROOT):
         except (ValueError,KeyError,sqlite3.IntegrityError): abort(400,'Invalid publication settings')
         finally: db.close()
         return redirect(url_for('publication_page'))
+
+    @app.get('/api/clips/<int:cid>')
+    def clip_detail(cid):
+        db=connect(dbpath)
+        try:
+            row=db.execute("SELECT c.*,v.title,v.url FROM clips c JOIN videos v ON v.id=c.video_id WHERE c.id=?",(cid,)).fetchone()
+            if not row or not row['output']: abort(404)
+            p=(root/row['output']).resolve()
+            if not p.is_relative_to(out.resolve()) or not p.is_file(): abort(404)
+            return jsonify(id=cid,title=row['title'],status=row['status'],mode=row['mode'],duration=(row['actual_end'] or row['end'])-(row['actual_start'] if row['actual_start'] is not None else row['start']),campaign=row['campaign'],profile=row['production_profile'],run_id=row['run_id'],source='Локальный файл' if row['video_id'].startswith('local_') else 'Telegram' if row['video_id'].startswith('tg_') else 'YouTube',source_url=row['url'] if row['url'].startswith(('https://www.youtube.com/','https://t.me/')) else None,has_cover=bool(row['cover']),bytes=p.stat().st_size,quality=json.loads(row['quality_result'] or '{}'))
+        finally: db.close()
 
     @app.post('/clips/bulk')
     def bulk_clips():
