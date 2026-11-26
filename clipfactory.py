@@ -18,8 +18,10 @@ def render(source, start, end, output, banner=None):
         print(f'Framing fallback: {exc}',file=sys.stderr)
     cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-ss',str(start),'-i',str(source)]
     if banner:
-        cmd += ['-i',str(banner)]
-        vf+='[base];[1:v]scale=1000:260:force_original_aspect_ratio=decrease[ad];[base][ad]overlay=(W-w)/2:H-h-180[v]'
+        from banners import Banner
+        spec=banner if isinstance(banner,Banner) else Banner(Path(banner))
+        cmd += ['-i',str(spec.path)]
+        vf+=spec.filter(end-start)
     else: vf+='[v]'
     cmd+=['-filter_complex_threads','1','-filter_complex',vf,'-map','[v]','-map','0:a?','-t',str(end-start),'-c:v','libx264','-threads','2','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart',str(output)]
     if os.getenv('CLIP_CAPTIONS','0') == '1':
