@@ -37,3 +37,5 @@ publication-job.log
 
 youtube-sessions/
 client_secrets*.json
+
+local-sources/
