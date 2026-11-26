@@ -101,7 +101,8 @@ def create_app(root=ROOT):
             query=request.args.get('q','').strip()[:150]
             page=max(1,min(100000,request.args.get('page',1,type=int)))
             where=[]; params=[]
-            if status!='all': where.append('c.status=?'); params.append(status)
+            if status=='done': where.append("c.output IS NOT NULL AND c.status!='archived'")
+            elif status!='all': where.append('c.status=?'); params.append(status)
             else: where.append("c.status!='archived'")
             batch_id=request.args.get('batch',type=int)
             if batch_id and batch_id>0: where.append('EXISTS (SELECT 1 FROM production_run_tasks rt WHERE rt.clip_id=c.id AND rt.run_id=? AND rt.status=\'done\')'); params.append(batch_id)
@@ -757,6 +758,39 @@ def create_app(root=ROOT):
         finally: db.close()
         return redirect(url_for('publication_page'))
 
+    @app.get('/api/clips/<int:cid>/edit')
+    def clip_edit_settings(cid):
+        from remontage import settings
+        db=connect(dbpath)
+        try:
+            row=db.execute('SELECT * FROM clips WHERE id=?',(cid,)).fetchone()
+            if not row or row['mode']!='short' or not row['output']: abort(404)
+            data=settings(root,row)
+            data['backgrounds']=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif'))
+            data['campaigns']=[c['name'] for c in read_json(campaigns,{'campaigns':[]})['campaigns'] if c.get('enabled',True)]
+            return jsonify(data)
+        finally: db.close()
+
+    @app.post('/clips/<int:cid>/edit')
+    def clip_edit(cid):
+        from remontage import prepare
+        from filelock import FileLock,Timeout
+        from production_runs import set_status
+        with lock:
+            if (job['process'] and job['process'].poll() is None) or preview_lock.locked(): return jsonify(error='Сначала приостановите производство.'),409
+            db=connect(dbpath)
+            try:
+                with FileLock(str(dbpath)+'.production.lock',timeout=0):
+                    run_id=prepare(root,db,cid,request.form)
+                try: launch_run(run_id)
+                except OSError as exc:
+                    set_status(db,run_id,'failed',str(exc))
+                    with db: db.execute("UPDATE clips SET status='failed',error=? WHERE id=?",(str(exc),cid))
+                    raise
+                return jsonify(run_id=run_id)
+            except (ValueError,KeyError,OSError,Timeout) as exc: return jsonify(error=str(exc)),400
+            finally: db.close()
+
     @app.get('/api/clips/<int:cid>')
     def clip_detail(cid):
         db=connect(dbpath)
@@ -782,7 +816,7 @@ def create_app(root=ROOT):
         db=connect(dbpath)
         try:
             if action=='export':
-                rows=db.execute(f"SELECT * FROM clips WHERE id IN ({marks}) AND status='done'",ids).fetchall()
+                rows=db.execute(f"SELECT * FROM clips WHERE id IN ({marks}) AND output IS NOT NULL AND status!='archived'",ids).fetchall()
                 if len(rows)!=len(ids): abort(400,'Export only completed clips')
                 entries=[]
                 for row in rows:
