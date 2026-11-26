@@ -43,7 +43,6 @@ def profile_env(root,name,account,templates):
 
 def run(db,root,out,limit=100,continuous=False,replenish=False,interval=1800):
     from pipeline import process
-    from telegram_source import scan_library
     root=Path(root).resolve()
     out=Path(out).resolve()
     out.mkdir(parents=True,exist_ok=True)
@@ -72,11 +71,12 @@ def run(db,root,out,limit=100,continuous=False,replenish=False,interval=1800):
                 stage('error',f'{name}: {exc}')
                 continue
             attempts+=1
-            print(f'CF_PROGRESS {attempts} {limit}',flush=True)
-            if attempts>=limit: break
+            print(f'CF_PROGRESS {attempts} {max(attempts,limit)}',flush=True)
+            if attempts>=limit and not continuous: break
             continue
         if name and not pending and replenish and time.monotonic()>=next_scan:
             next_scan=time.monotonic()+interval
+            from telegram_source import scan_library
             if scan_library(db,root): break
             continue
         if not continuous: break
