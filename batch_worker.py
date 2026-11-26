@@ -42,6 +42,10 @@ def run(db,root,out,run_id,settings):
                     scanned+=1
                     before=db.execute("SELECT count(*) FROM clips WHERE mode=? AND status='pending'",(mode,)).fetchone()[0]
                     scan(db,settings,mode=mode)
+                    if mode=='short' and db.execute('SELECT 1 FROM telegram_channels WHERE enabled=1 LIMIT 1').fetchone():
+                        from telegram_source import scan_library
+                        try: scan_library(db,root)
+                        except Exception as exc: stage('telegram_scan',str(exc)[:300])
                     after=db.execute("SELECT count(*) FROM clips WHERE mode=? AND status='pending'",(mode,)).fetchone()[0]
                     if after>before: continue
                 set_status(db,run_id,'exhausted','No more eligible queued candidates')
@@ -71,6 +75,9 @@ def run(db,root,out,run_id,settings):
                 continue
             record(db,run_id,cid,state)
             if issue['kind']=='system' and state in ('failed','ad_review'):
+                with db:
+                    db.execute("UPDATE clips SET status='pending' WHERE id=?",(cid,))
+                record(db,run_id,cid,'pending')
                 set_status(db,run_id,'paused',issue['title'])
                 return
             stage('batch_result',f'#{cid}: {state}')
