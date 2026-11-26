@@ -30,4 +30,22 @@ document.querySelectorAll('.edit-profile').forEach(btn=>btn.addEventListener('cl
  draw(); f.scrollIntoView({behavior:'smooth',block:'center'});
 }));
 draw();
+const btn=document.getElementById('render-preview'), player=document.getElementById('real-preview'), status=document.getElementById('preview-status');
+let objectUrl='';
+if(btn&&player&&status)btn.addEventListener('click',async()=>{
+ btn.disabled=true;
+ status.textContent='FFmpeg: создание предпросмотра…';
+ try{
+  const response=await fetch('/short-preview',{method:'POST',body:new FormData(f)});
+  if(!response.ok)throw new Error('Предпросмотр не создан (HTTP '+response.status+'). Проверьте настройки и файл.');
+  const blob=await response.blob();
+  if(objectUrl)URL.revokeObjectURL(objectUrl);
+  objectUrl=URL.createObjectURL(blob);
+  player.src=objectUrl;
+  player.hidden=false;
+  status.textContent='Готово: реальные первые 5 секунд (без субтитров).';
+ }catch(e){status.textContent=e.message;}
+ finally{btn.disabled=false;}
+});
+window.addEventListener('pagehide',()=>{if(objectUrl)URL.revokeObjectURL(objectUrl);});
 })();
