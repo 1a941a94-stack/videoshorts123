@@ -871,6 +871,22 @@ def create_app(root=ROOT):
             except (ValueError,KeyError,OSError,Timeout) as exc: return jsonify(error=str(exc)),400
             finally: db.close()
 
+    @app.get('/api/clips/<int:cid>/versions')
+    def clip_history(cid):
+        from clip_versions import list_versions
+        db=connect(dbpath)
+        try: return jsonify(versions=list_versions(db,root,cid))
+        finally: db.close()
+
+    @app.get('/clips/<int:cid>/versions/<int:vid>/video')
+    def clip_history_media(cid,vid):
+        from clip_versions import media
+        db=connect(dbpath)
+        try: path=media(db,root,cid,vid)
+        finally: db.close()
+        if path is None: abort(404)
+        return send_file(path,mimetype='video/mp4',conditional=True)
+
     @app.get('/api/clips/<int:cid>')
     def clip_detail(cid):
         db=connect(dbpath)
