@@ -520,6 +520,31 @@ def create_app(root=ROOT):
                 abort(400,'Invalid background media')
         return redirect(url_for('index')+'#media-library')
 
+    @app.post('/short-backgrounds/<name>/delete')
+    def delete_background(name):
+        import re
+        if not re.fullmatch(r'[a-f0-9]{24}\.(?:jpg|mp4|webm|mov|gif)',name): abort(404)
+        with lock:
+            if job['process'] and job['process'].poll() is None or preview_lock.locked(): abort(409,'Остановите монтаж')
+            if any(p.get('background')==name for p in __import__('short_templates').load(root).values()): abort(409,'Фон используется шаблоном')
+            db=connect(dbpath)
+            try:
+                if db.execute("SELECT 1 FROM clips WHERE instr(coalesce(task_snapshot,''),?)>0 LIMIT 1",(name,)).fetchone() or db.execute("SELECT 1 FROM production_runs WHERE instr(snapshot,?)>0 LIMIT 1",(name,)).fetchone(): abort(409,'Фон используется сохранённой задачей')
+                (assets/'backgrounds'/name).unlink(missing_ok=True)
+            finally: db.close()
+        return redirect(url_for('index')+'#media-library')
+
+    @app.post('/short-profiles/<name>/delete')
+    def delete_template(name):
+        with lock:
+            if any(x.get('template')==name for x in __import__('run_configs').load(root)['items'].values()) or any(x.get('template')==name for x in __import__('production_profiles').load(root).values()): abort(409,'Шаблон используется конфигурацией')
+            path=root/'short-templates.json'
+            data=read_json(path,{})
+            if name not in data: abort(404)
+            del data[name]
+            save_json(path,data)
+        return redirect(url_for('index')+'#saved-templates')
+
     @app.get('/short-backgrounds/<name>')
     def view_short_background(name):
         import re
