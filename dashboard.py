@@ -315,14 +315,30 @@ def create_app(root=ROOT):
             save_json(campaigns,data)
         return redirect(url_for('index')+'#campaigns')
 
+    @app.post('/factory/stop')
+    def stop_factory():
+        with lock:
+            if job['action']!='factory' or not job['process'] or job['process'].poll() is not None: abort(409)
+            (root/'factory.stop').touch()
+        return redirect(url_for('index')+'#factory')
+
     @app.post('/jobs/<action>')
     def start_job(action):
-        if action not in ('scan','work','retry','import-short','scan-telegram','scan-telegram-library','discover-telegram'): abort(404)
+        if action not in ('scan','work','retry','import-short','scan-telegram','scan-telegram-library','discover-telegram','factory'): abort(404)
         with lock:
             if job['process'] and job['process'].poll() is None: abort(409,'Job already running')
             cmd=[sys.executable,'-u',str(ROOT/'pipeline.py'),'--db',str(dbpath)]
             if config.exists(): cmd+=['--config',str(config)]
             cmd.append(action)
+            if action=='factory':
+                try: limit=int(request.form.get('limit','100'))
+                except ValueError: abort(400)
+                if not 1<=limit<=1000: abort(400)
+                if not __import__('production_profiles').load(root): abort(400,'Create profiles first')
+                (root/'factory.stop').unlink(missing_ok=True)
+                cmd+=['--limit',str(limit),'--out',str(out)]
+                if request.form.get('continuous')=='1': cmd.append('--continuous')
+                if request.form.get('replenish')=='1': cmd.append('--replenish')
             if action=='discover-telegram':
                 queries=[q.strip() for q in request.form.get('queries','').splitlines() if q.strip()]
                 if len(queries)>20 or any(len(q)>100 for q in queries): abort(400)
