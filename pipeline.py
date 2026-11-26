@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS clips (
  updated INTEGER NOT NULL, error TEXT, output TEXT,
  UNIQUE(video_id,start,end)
 );
-CREATE TABLE IF NOT EXISTS telegram_channels (name TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1, history INTEGER NOT NULL DEFAULT 100, min_views INTEGER NOT NULL DEFAULT 1000, cursor INTEGER, last_scan INTEGER, found INTEGER NOT NULL DEFAULT 0, error TEXT);
+CREATE TABLE IF NOT EXISTS telegram_channels (name TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1, history INTEGER NOT NULL DEFAULT 100, min_views INTEGER NOT NULL DEFAULT 0, cursor INTEGER, last_scan INTEGER, found INTEGER NOT NULL DEFAULT 0, error TEXT);
 CREATE TABLE IF NOT EXISTS fingerprints (clip_id INTEGER PRIMARY KEY REFERENCES clips(id), sha256 TEXT NOT NULL, duration REAL NOT NULL, payload TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS fingerprints_duration ON fingerprints(duration);
 CREATE INDEX IF NOT EXISTS fingerprints_sha ON fingerprints(sha256);
@@ -38,7 +38,7 @@ def connect(path):
     db.execute('BEGIN IMMEDIATE')
     try:
         cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
-        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT')]:
+        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT')]:
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         db.commit()
     except BaseException:
@@ -175,6 +175,23 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
                 if match:
                     stage('duplicate_check',f'#{row["id"]} matches #{original}: {kind}')
                     return True
+            if mode=='short':
+                from ad_filter import screen
+                from source_media import stage
+                stage('ad_check','Screening for third-party advertising')
+                brandfile=Path(db.execute('PRAGMA database_list').fetchone()[2]).resolve().parent/'ad-brands.txt'
+                brands=brandfile.read_text(encoding='utf-8').splitlines() if brandfile.is_file() else []
+                try:
+                    verdict,reason=screen(source,b-a,brands)
+                except Exception as exc:
+                    verdict,reason='review',f'Screening incomplete: {str(exc)[:250]}'
+                with db:
+                    db.execute("UPDATE clips SET ad_result=? WHERE id=?",(reason,row['id']))
+                    if verdict!='clean':
+                        db.execute("UPDATE clips SET status=?,updated=?,error=NULL WHERE id=?",('ad_rejected' if verdict=='rejected' else 'ad_review',int(time.time()),row['id']))
+                if verdict!='clean':
+                    stage('ad_check',f'#{row["id"]}: {verdict} — {reason}')
+                    return True
             selected=choose(campaigns,b-a) if campaigns else banner
             if mode=='short':
                 from short_media import render_short
@@ -209,7 +226,7 @@ def main():
     tg=sub.add_parser('scan-telegram')
     tg.add_argument('channel')
     tg.add_argument('--limit',type=int,default=100)
-    tg.add_argument('--min-views',type=int,default=1000)
+    tg.add_argument('--min-views',type=int,default=0)
     library=sub.add_parser('scan-telegram-library')
     library.add_argument('--full',action='store_true')
     sub.add_parser('status')
