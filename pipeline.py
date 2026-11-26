@@ -137,9 +137,9 @@ def claim(db,mode='long',run_id=None,only_ids=None):
             restriction=' AND c.id IN ('+','.join('?' for _ in only_ids)+')'
             params.extend(only_ids)
         row = db.execute("""SELECT c.*,v.url FROM clips c JOIN videos v ON v.id=c.video_id
-        WHERE c.status='pending' AND c.mode=? AND (? IS NULL OR c.run_id IS NULL OR c.run_id=?)"""+restriction+" ORDER BY c.priority DESC,coalesce(c.rank,c.score) DESC,c.id LIMIT 1",params).fetchone()
+        WHERE c.status='pending' AND c.mode=? AND ((? IS NULL AND c.run_id IS NULL) OR c.run_id IS NULL OR c.run_id=?)"""+restriction+" ORDER BY c.priority DESC,coalesce(c.rank,c.score) DESC,c.id LIMIT 1",params).fetchone()
         if row:
-            db.execute("UPDATE clips SET status='running',attempts=attempts+1,updated=? WHERE id=?", (int(time.time()),row['id']))
+            db.execute("UPDATE clips SET status='running',run_id=coalesce(?,run_id),attempts=attempts+1,updated=? WHERE id=?", (run_id,int(time.time()),row['id']))
         db.commit()
         return row
     except BaseException:
