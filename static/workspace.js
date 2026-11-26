@@ -4,9 +4,10 @@
   queue:{title:'Очередь производства',ids:['queue']},
   configurations:{title:'Конфигурации',ids:['run-configurations']},
   production:{title:'Расширенное производство',ids:['production-controls','factory']},
-  library:{title:'Библиотека видео',ids:['local-library','telegram','sources','videos']},
+  library:{title:'Источники',ids:['sources','telegram','manual-import','local-library','videos']},
   results:{title:'Готовые ролики',ids:['clips']},
-  design:{title:'Шаблоны и фоны',ids:['short-template']},
+  design:{title:'Шаблоны',ids:['saved-templates','short-template']},
+  media:{title:'Медиатека',ids:['media-library']},
   profiles:{title:'Профили монтажа',ids:['production-profiles']},
   ads:{title:'Рекламные кампании',ids:['campaigns','ad-references']},
   system:{title:'Диагностика и настройки',ids:['performance','settings']}
