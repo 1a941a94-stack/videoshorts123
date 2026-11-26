@@ -21,6 +21,7 @@ def run(db,root,out,run_id,settings):
     max_scans=3
     with db:
         db.execute("UPDATE clips SET status='pending' WHERE run_id=? AND status='running'",(run_id,))
+        db.execute("UPDATE production_run_tasks SET status='done' WHERE run_id=? AND clip_id IN (SELECT id FROM clips WHERE run_id=? AND status='done')",(run_id,run_id))
     set_status(db,run_id,'running')
     try:
         while True:
@@ -51,7 +52,7 @@ def run(db,root,out,run_id,settings):
                 set_status(db,run_id,'exhausted','No more eligible queued candidates')
                 return
             cid=row['id']
-            task=json.loads(row['task_snapshot']) if row['task_snapshot'] else config
+            task=json.loads(row['task_snapshot']) if row['task_snapshot'] and row['run_id']==run_id else config
             with db:
                 db.execute('UPDATE clips SET run_id=?,task_snapshot=? WHERE id=?',(run_id,json.dumps(task,ensure_ascii=False),cid))
             record(db,run_id,cid,'running')
