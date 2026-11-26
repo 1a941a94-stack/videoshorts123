@@ -32,14 +32,11 @@ def render_short(source,duration,output,banner=None):
         vf=f"[0:v]scale={size}:{size}:force_original_aspect_ratio=increase,crop={size}:{size},setsar=1"
     else:
         vf=f"[0:v]scale={size}:{size}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={size}:{size}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
-    if border:
-        outer=size+2*border
+    outer=size+2*border
+    if layout=='rectangle' and border:
         vf+=f",pad={outer}:{outer}:{border}:{border}:color={border_color}"
-    else: outer=size
-    if layout=='circle':
-        radius=outer/2
-        vf+=f",format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(sqrt((X-{radius})*(X-{radius})+(Y-{radius})*(Y-{radius})),{radius-1}),255,0)'"
-    vf+='[fg]'
+    vf+=',fps=30[foreground]'
+    if layout=='rectangle': vf+=';[foreground]null[fg]'
     # Background is optional; otherwise use a dark blue canvas.
     if background:
         from banners import MOTION_EXT,media_input
@@ -49,23 +46,41 @@ def render_short(source,duration,output,banner=None):
     else:
         vf+=f";color=c={color}:s=1080x1920:r=30[bg]"
         ad_index=1
+    if layout=='circle':
+        mask_index=ad_index
+        ad_index+=1
+        cmd+=['-i','circle-mask.png']
+        vf+=f";[foreground]format=rgba[inner];[{mask_index}:v]format=gray[alpha];[inner][alpha]alphamerge[masked]"
+        if border:
+            ring_index=ad_index
+            ad_index+=1
+            cmd+=['-loop','1','-framerate','30','-i','circle-ring.png']
+            vf+=f";[{ring_index}:v]format=rgba[ring];[ring][masked]overlay={border}:{border}:format=rgb:shortest=1[fg]"
+        else: vf+=';[masked]null[fg]'
     vf+=f";[bg][fg]overlay=(W-w)/2+({spec['x']}):(H-h)/2+({spec['y']}):shortest=1"
     if banner:
         from banners import Banner,media_input
-        from dataclasses import replace
         spec=banner if isinstance(banner,Banner) else Banner(Path(banner))
-        spec=replace(spec,position='top',margin=160,height=min(spec.height,280))
         cmd+=media_input(spec.path)
         vf+=spec.filter(duration).replace('[1:v]',f'[{ad_index}:v]')
     else: vf+='[v]'
     with tempfile.TemporaryDirectory() as folder:
+        if layout=='circle':
+            from PIL import Image,ImageDraw
+            def disk(n,fill,mode,path):
+                image=Image.new(mode,(n*3,n*3),0 if mode=='L' else (0,0,0,0))
+                ImageDraw.Draw(image).ellipse((0,0,n*3-1,n*3-1),fill=fill)
+                image.resize((n,n),Image.Resampling.LANCZOS).save(Path(folder)/path)
+            disk(size,255,'L','circle-mask.png')
+            if border: disk(outer,tuple(bytes.fromhex(border_color[2:]))+(255,),'RGBA','circle-ring.png')
         if os.getenv('CLIP_CAPTIONS','0')=='1':
             from captions import prepare
             stage('captions')
             prepare(source,0,duration,folder)
             vf=vf.removesuffix('[v]')+'[pre];[pre]ass=captions.ass[v]'
         stage('render',layout)
+        audio=['-af','loudnorm=I=-16:TP=-1.5:LRA=11','-ar','48000','-b:a','160k'] if os.getenv('CLIP_NORMALIZE_AUDIO','1')=='1' else []
         cmd+=['-filter_complex_threads','1','-filter_complex',vf,'-map','[v]','-map','0:a?',
               '-t',str(duration),'-c:v','libx264','-threads','2','-preset','veryfast','-crf','22',
-              '-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart',str(output)]
+              '-pix_fmt','yuv420p','-c:a','aac',*audio,'-movflags','+faststart',str(output)]
         subprocess.run(cmd,check=True,cwd=folder,timeout=600)
