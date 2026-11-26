@@ -62,18 +62,19 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
             lines.append(f'Dialogue: 0,{stamp(group[0][0])},{stamp(group[-1][1])},Default,,0,0,0,,'+ ' '.join(clean(x[2]) for x in group))
             continue
         for i,(a,b,w) in enumerate(group):
-            if i+1<len(group): b=min(group[i+1][0],max(b,a))
+            if i+1<len(group): b=max(a,min(group[i+1][0],max(b,group[i+1][0] if group[i+1][0]-b<=.25 else b)))
             if b<=a: continue
             text=' '.join(r'{\c&H'+highlight+r'&}'+clean(x[2])+r'{\c&H'+primary+r'&}' if j==i else clean(x[2]) for j,x in enumerate(group))
             lines.append(f'Dialogue: 0,{stamp(a)},{stamp(b)},Default,,0,0,0,,{text}')
     return head+'\n'.join(lines)+'\n'
 
-def prepare(source,start,end,folder,style=None):
+def prepare(source,start,end,folder,style=None,words=None):
     import json
     if style is None and os.getenv('CLIP_CAPTION_STYLE'): style=json.loads(os.environ['CLIP_CAPTION_STYLE'])
     folder=Path(folder)
     from quality import inspect
-    words=transcribe(source,start,end,folder/'audio.wav') if any(s.get('codec_type')=='audio' for s in inspect(source).get('streams',[])) else []
+    if words is None:
+        words=transcribe(source,start,end,folder/'audio.wav') if any(s.get('codec_type')=='audio' for s in inspect(source).get('streams',[])) else []
     path=folder/'captions.ass'
     path.write_text(ass(words,font=os.getenv('CLIP_FONT','DejaVu Sans'),
                         size=int(os.getenv('CLIP_FONT_SIZE','64')),
