@@ -31,9 +31,15 @@ def connect(path):
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA journal_mode=WAL")
     db.executescript(SCHEMA)
-    if 'campaign' not in {r[1] for r in db.execute('PRAGMA table_info(clips)')}:
-        db.execute('ALTER TABLE clips ADD COLUMN campaign TEXT')
+    db.execute('BEGIN IMMEDIATE')
+    try:
+        cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
+        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT')]:
+            if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         db.commit()
+    except BaseException:
+        db.rollback()
+        raise
     return db
 
 def add_source(db, query):
@@ -76,10 +82,10 @@ def inspect_video(db, entry, settings, extractor=extract):
         checked=excluded.checked,error=excluded.error""",
         (vid,url,info.get('title'),info.get('view_count'),info.get('duration'),status,now,error))
         for c in clips:
-            db.execute("""INSERT OR IGNORE INTO clips(video_id,start,end,score,updated)
-            SELECT ?,?,?,?,? WHERE NOT EXISTS
+            db.execute("""INSERT OR IGNORE INTO clips(video_id,start,end,score,updated,peak,rank)
+            SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS
             (SELECT 1 FROM clips WHERE video_id=? AND start < ? AND end > ?)""",
-            (vid,c['start'],c['end'],c['score'],now,vid,c['end'],c['start']))
+            (vid,c['start'],c['end'],c['score'],now,c.get('peak'),c.get('rank'),vid,c['end'],c['start']))
     return status
 
 def scan(db, settings, finder=discover, extractor=extract):
@@ -107,7 +113,7 @@ def claim(db):
     db.execute("BEGIN IMMEDIATE")
     try:
         row = db.execute("""SELECT c.*,v.url FROM clips c JOIN videos v ON v.id=c.video_id
-        WHERE c.status='pending' ORDER BY c.score DESC,c.id LIMIT 1""").fetchone()
+        WHERE c.status='pending' ORDER BY coalesce(c.rank,c.score) DESC,c.id LIMIT 1""").fetchone()
         if row:
             db.execute("UPDATE clips SET status='running',attempts=attempts+1,updated=? WHERE id=?", (int(time.time()),row['id']))
         db.commit()
@@ -125,14 +131,22 @@ def process(db, out, banner=None, campaigns=None):
     tmp = out / f"clip_{row['id']}.partial.mp4"
     try:
         from banners import choose
-        selected=choose(campaigns,row['end']-row['start']) if campaigns else banner
-        print('CF_STAGE '+json.dumps({'stage':'download','detail':f'#{row["id"]} · {row["start"]:.1f}–{row["end"]:.1f} s'},ensure_ascii=True),flush=True)
-        download(row['url'],dict(row),raw)
-        render(raw,0,row['end']-row['start'],tmp,selected)
+        from source_media import cached_source,refine,prune_cache
+        from filelock import FileLock
+        cache=out/'source-cache'
+        cache.mkdir(parents=True,exist_ok=True)
+        with FileLock(str(cache/(row['video_id']+'.lock')),timeout=1800):
+            prune_cache(cache,exclude=row['video_id'])
+            source=cached_source(row['url'],row['video_id'],cache)
+            peak=row['peak'] if row['peak'] is not None else row['start']+(row['end']-row['start'])*.4
+            a,b,method=refine(source,row['start'],row['end'],peak)
+            selected=choose(campaigns,b-a) if campaigns else banner
+            render(source,a,b,tmp,selected)
+        prune_cache(cache)
         print('CF_STAGE '+json.dumps({'stage':'save','detail':f'#{row["id"]}'},ensure_ascii=True),flush=True)
         tmp.replace(dest)
         with db:
-            db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,row['id']))
+            db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=?,actual_start=?,actual_end=?,boundary_method=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,a,b,method,row['id']))
     except Exception as exc:
         print('CF_STAGE '+json.dumps({'stage':'error','detail':f'#{row["id"]}: {str(exc)[:300]}'},ensure_ascii=True),flush=True)
         with db:
