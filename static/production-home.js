@@ -27,14 +27,14 @@ function recent(items){
  if(!items.length){grid.textContent='Здесь появятся видео сразу после монтажа.';return;}
  for(const c of items){
   const card=document.createElement('article');card.className='home-clip';
-  const view=document.createElement('a');view.href='/clips/'+c.id+'/video';view.target='_blank';view.rel='noopener';
+  const view=document.createElement('a');view.href='/clips/'+c.id+'/video';view.dataset.openClip=c.id;
   if(c.cover){const img=document.createElement('img');img.src='/clips/'+c.id+'/cover';img.alt='';img.loading='lazy';view.append(img);}
   else{const span=document.createElement('span');span.className='clip-placeholder';span.textContent='▶';view.append(span);}
   const title=document.createElement('strong');title.textContent=c.title||'Ролик #'+c.id;
   const actions=document.createElement('div');
   for(const [label,download] of [['Смотреть',false],['Скачать',true]]){
    const a=document.createElement('a');a.href=view.href;a.textContent=label;
-   if(download)a.download='clip_'+c.id+'.mp4';else{a.target='_blank';a.rel='noopener';}
+   if(download)a.download='clip_'+c.id+'.mp4';else{a.dataset.openClip=c.id;}
    actions.append(a);
   }
   card.append(view,title,actions);grid.append(card);
@@ -54,6 +54,7 @@ async function poll(){
    $('batch-done').textContent=done;$('batch-goal').textContent='/ '+b.goal;
    $('batch-fill').style.width=Math.min(100,100*done/b.goal)+'%';
    $('batch-detail').textContent='Отсеяно: '+((b.counts.duplicate||0)+(b.counts.ad_rejected||0))+' · Ошибки: '+(b.counts.failed||0)+' · На проверке: '+(b.counts.ad_review||0);
+   const results=$('batch-results');results.hidden=!done;results.href='/?clip_status=done&batch='+b.id+'#clips';results.textContent='Посмотреть '+done+' готовых видео';
    $('batch-pause').hidden=d.active_id!==b.id;
    $('batch-resume').hidden=Boolean(d.active_id)||!['paused','queued','running'].includes(b.status);
    $('batch-pause').action='/production/'+b.id+'/pause';$('batch-resume').action='/production/'+b.id+'/resume';
