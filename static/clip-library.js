@@ -16,7 +16,7 @@
   const op=e.submitter?.value;
   if(!boxes().some(b=>b.checked)){e.preventDefault();return;}
   if(op==='remontage'&&!confirm('Вернуть выбранные ролики в очередь? Старые файлы сохранятся.'))e.preventDefault();
-  if(op==='purge'&&!confirm('Окончательно удалить выбранные MP4 и обложки? Восстановить их будет невозможно.'))e.preventDefault();
+  if(op==='purge'&&!confirm('Окончательно удалить выбранные MP4, обложки и все предыдущие версии? Восстановить их будет невозможно.'))e.preventDefault();
   if(op==='archive'&&!confirm('Переместить выбранные записи в архив?'))e.preventDefault();
  });
  window.addEventListener('clip-library-refresh',update);
@@ -60,7 +60,7 @@
   document.getElementById('clip-dialog-quality').textContent='';
   document.getElementById('clip-dialog-message').textContent='Загрузка…';
   for(const key of ['clip-download','clip-cover-download','clip-source-link'])document.getElementById(key).hidden=true;
-  player.src='/clips/'+id+'/video';
+  player.src='/clips/'+id+'/video?v='+Date.now();
   document.getElementById('clip-history').open=false;
   document.getElementById('clip-history-list').replaceChildren();
   if(!dialog.open)dialog.showModal();
@@ -87,7 +87,26 @@
      play.type='button';play.className='secondary';play.textContent=new Date(v.created*1000).toLocaleString()+' · Смотреть';
      play.onclick=()=>{player.src=url;player.play().catch(()=>{});};
      download.href=url;download.download='clip_'+id+'_version_'+v.id+'.mp4';download.textContent=' Скачать';
-     row.append(play,download);list.append(row);
+     row.append(play,download);
+     if(['done','failed','ad_review','ad_rejected','duplicate'].includes(c.status)){
+      const restore=document.createElement('button');restore.type='button';restore.className='secondary';restore.textContent='Сделать основной';
+      restore.onclick=async()=>{
+       if(!confirm('Восстановить эту версию? Текущая версия сохранится в истории.'))return;
+       restore.disabled=true;
+       try{
+        const body=new FormData();body.append('csrf',form.elements.csrf.value);
+        const res=await fetch('/clips/'+id+'/versions/'+v.id+'/restore',{method:'POST',body});
+        const result=await res.json();if(!res.ok)throw Error(result.error||'Не удалось восстановить версию');
+        if(token!==generation)return;
+        await openClip(id);msg.textContent='Версия восстановлена.';
+        const html=await fetch(location.pathname+location.search,{cache:'no-store'}).then(r=>r.text());
+        const fresh=new DOMParser().parseFromString(html,'text/html').getElementById('gallery-items'),gallery=document.getElementById('gallery-items');
+        if(fresh&&gallery){gallery.replaceChildren(...fresh.children);update();}
+       }catch(e){if(token===generation)msg.textContent=e.message;}
+       finally{restore.disabled=false;}
+      };row.append(restore);
+     }
+     list.append(row);
     }
     const current=document.createElement('button');current.type='button';current.className='secondary';current.textContent='Текущая версия';current.onclick=()=>{player.src='/clips/'+id+'/video';};list.prepend(current);
    }).catch(()=>{if(token===generation)document.getElementById('clip-history-list').textContent='История недоступна';});
