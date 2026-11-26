@@ -1,0 +1,14 @@
+<section id="queue" class="queue-workspace">
+<div class="heading"><h3>Задачи производства</h3><a href="#production-runs">К производству</a></div>
+<p class="muted">Задачи поступают из поиска YouTube, Telegram и локального импорта. Дубли и рекламные исходники исключаются автоматически.</p>
+<div class="queue-tabs" role="group" aria-label="Фильтр задач">
+<button type="button" class="secondary active" data-queue-filter="active">В очереди и работе <span></span></button>
+<button type="button" class="secondary" data-queue-filter="attention">Требуют внимания <span></span></button>
+<button type="button" class="secondary" data-queue-filter="filtered">Отсеяно <span></span></button>
+<button type="button" class="secondary" data-queue-filter="cancelled">Отменено <span></span></button>
+</div>
+<div class="queue-search"><input id="queue-search" placeholder="Название или номер задачи" aria-label="Поиск задач"><span id="queue-count" class="muted"></span></div>
+<div id="queue-list" aria-live="polite"><p class="muted">Загрузка задач…</p></div>
+<p id="queue-message" role="status"></p>
+<input type="hidden" id="queue-csrf" value="{{csrf}}">
+</section>
