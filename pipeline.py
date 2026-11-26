@@ -187,6 +187,7 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
                 if match:
                     stage('duplicate_check',f'#{row["id"]} matches #{original}: {kind}')
                     return True
+            transcript=[]
             if mode=='short':
                 from ad_filter import screen
                 from source_media import stage
@@ -194,7 +195,7 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
                 brandfile=Path(db.execute('PRAGMA database_list').fetchone()[2]).resolve().parent/'ad-brands.txt'
                 brands=brandfile.read_text(encoding='utf-8').splitlines() if brandfile.is_file() else []
                 try:
-                    verdict,reason=screen(source,b-a,brands,reference_dir=brandfile.parent/'assets'/'ad-references')
+                    verdict,reason=screen(source,b-a,brands,reference_dir=brandfile.parent/'assets'/'ad-references',transcript=transcript)
                 except Exception as exc:
                     verdict,reason='review',f'Screening incomplete: {str(exc)[:250]}'
                 with db:
@@ -207,7 +208,7 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
             selected=choose(campaigns,b-a,campaign=os.getenv('CLIP_CAMPAIGN_NAME') or None) if campaigns else banner
             if mode=='short':
                 from short_media import render_short
-                render_short(source,b,tmp,selected)
+                render_short(source,b,tmp,selected,words=transcript)
             else: render(source,a,b,tmp,selected)
             quality=None
             if mode=='short':
