@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS clips (
  updated INTEGER NOT NULL, error TEXT, output TEXT,
  UNIQUE(video_id,start,end)
 );
+CREATE TABLE IF NOT EXISTS telegram_channels (name TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1, history INTEGER NOT NULL DEFAULT 100, min_views INTEGER NOT NULL DEFAULT 1000, cursor INTEGER, last_scan INTEGER, found INTEGER NOT NULL DEFAULT 0, error TEXT);
 CREATE INDEX IF NOT EXISTS clips_queue ON clips(status,score DESC);
 """
 
@@ -192,6 +193,8 @@ def main():
     tg.add_argument('channel')
     tg.add_argument('--limit',type=int,default=100)
     tg.add_argument('--min-views',type=int,default=1000)
+    library=sub.add_parser('scan-telegram-library')
+    library.add_argument('--full',action='store_true')
     sub.add_parser('status')
     sub.add_parser('retry')
     work=sub.add_parser('work')
@@ -220,6 +223,9 @@ def main():
             print('CF_STAGE '+json.dumps({'stage':'import_short','detail':result}),flush=True)
             if result!='ready': raise SystemExit(1)
             print('CF_PROGRESS 1 1',flush=True)
+        elif args.action=='scan-telegram-library':
+            from telegram_source import scan_library
+            if scan_library(db,Path(args.db).resolve().parent,args.full): raise SystemExit(1)
         elif args.action=='scan-telegram':
             from telegram_source import scan_channel
             print('CF_PROGRESS 0 1',flush=True)
