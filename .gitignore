@@ -42,3 +42,5 @@ local-sources/
 
 benchmark-result.json
 performance.json
+
+run-configs.json
