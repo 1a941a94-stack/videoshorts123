@@ -61,6 +61,8 @@
   document.getElementById('clip-dialog-message').textContent='Загрузка…';
   for(const key of ['clip-download','clip-cover-download','clip-source-link'])document.getElementById(key).hidden=true;
   player.src='/clips/'+id+'/video';
+  document.getElementById('clip-history').open=false;
+  document.getElementById('clip-history-list').replaceChildren();
   if(!dialog.open)dialog.showModal();
   try{
    const response=await fetch('/api/clips/'+id,{cache:'no-store'});
@@ -75,6 +77,20 @@
    const cover=document.getElementById('clip-cover-download');cover.href='/clips/'+id+'/cover';cover.download='clip_'+id+'.jpg';cover.hidden=!c.has_cover;
    const source=document.getElementById('clip-source-link');source.hidden=!c.source_url;if(c.source_url)source.href=c.source_url;
    document.getElementById('clip-dialog-message').textContent='';
+   fetch('/api/clips/'+id+'/versions',{cache:'no-store'}).then(r=>{if(!r.ok)throw Error();return r.json();}).then(data=>{
+    if(token!==generation)return;
+    const list=document.getElementById('clip-history-list');list.replaceChildren();
+    if(!data.versions.length){list.textContent='Нет предыдущих версий';return;}
+    for(const v of data.versions){
+     const row=document.createElement('p'),play=document.createElement('button'),download=document.createElement('a');
+     const url='/clips/'+id+'/versions/'+v.id+'/video';
+     play.type='button';play.className='secondary';play.textContent=new Date(v.created*1000).toLocaleString()+' · Смотреть';
+     play.onclick=()=>{player.src=url;player.play().catch(()=>{});};
+     download.href=url;download.download='clip_'+id+'_version_'+v.id+'.mp4';download.textContent=' Скачать';
+     row.append(play,download);list.append(row);
+    }
+    const current=document.createElement('button');current.type='button';current.className='secondary';current.textContent='Текущая версия';current.onclick=()=>{player.src='/clips/'+id+'/video';};list.prepend(current);
+   }).catch(()=>{if(token===generation)document.getElementById('clip-history-list').textContent='История недоступна';});
   }catch(e){if(token===generation)document.getElementById('clip-dialog-message').textContent=e.message;}
  }
  document.addEventListener('click',e=>{const b=e.target.closest('[data-open-clip]');if(b){e.preventDefault();openClip(b.dataset.openClip);}});
