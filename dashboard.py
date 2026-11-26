@@ -172,6 +172,13 @@ def create_app(root=ROOT):
             finally: db.close()
         return redirect(url_for('index')+'#queue')
 
+    @app.get('/api/diagnostics')
+    def diagnostics_state():
+        from diagnostics import readiness
+        mode=request.args.get('mode','short')
+        if mode not in ('short','long'): abort(400)
+        return jsonify(checks=readiness(root,mode))
+
     @app.get('/api/storage')
     def storage_state():
         from storage_control import stats
@@ -255,6 +262,9 @@ def create_app(root=ROOT):
                 item=data['items'][name]
                 goal=int(request.form.get('goal') or item['goal'])
                 snap=resolve(root,item)
+                from diagnostics import readiness
+                issues=[x['name'] for x in readiness(root,item['mode']) if x['required'] and not x['ok']]
+                if issues: abort(409,'Не готова система: '+', '.join(issues))
                 snap['name']=name
                 db=connect(dbpath)
                 try: run_id=create(db,goal,snap)
