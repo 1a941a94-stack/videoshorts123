@@ -19,7 +19,7 @@ function draw(){
  m.style.top=(50+y/1920*100)+'%';
  m.style.borderRadius=v('layout')==='circle'?'50%':'0';
  m.style.border=b/1080*p.clientWidth+'px solid '+v('border_color');
- m.textContent=v('fit')==='cover'?'ЗАПОЛНЕНИЕ':'ВПИСАТЬ';
+ const source=document.getElementById('studio-source');if(source)source.style.objectFit=v('fit');
 }
 f.addEventListener('input',draw);
 window.addEventListener('resize',draw);
