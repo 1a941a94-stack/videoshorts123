@@ -39,7 +39,7 @@ def connect(path):
     db.execute('BEGIN IMMEDIATE')
     try:
         cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
-        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT'),('production_profile','TEXT')]:
+        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT'),('production_profile','TEXT'),('cover','TEXT'),('cover_error','TEXT')]:
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         db.commit()
     except BaseException:
@@ -209,8 +209,18 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
         prune_cache(cache)
         print('CF_STAGE '+json.dumps({'stage':'save','detail':f'#{row["id"]}'},ensure_ascii=True),flush=True)
         tmp.replace(dest)
+        cover=None
+        cover_error=None
+        if mode=='short' and os.getenv('CLIP_COVER_MODE','auto')!='off':
+            try:
+                from covers import generate
+                from source_media import stage
+                stage('cover','Generating cover')
+                cover=str(generate(dest,dest.with_suffix('.jpg'),b-a,mode=os.getenv('CLIP_COVER_MODE','auto'),title=os.getenv('CLIP_COVER_TITLE',''),color=os.getenv('CLIP_COVER_COLOR','#172536')))
+            except Exception as exc:
+                cover_error=str(exc)[:500]
         with db:
-            db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=?,actual_start=?,actual_end=?,boundary_method=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,a,b,method,row['id']))
+            db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=?,actual_start=?,actual_end=?,boundary_method=?,cover=?,cover_error=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,a,b,method,cover,cover_error,row['id']))
     except Exception as exc:
         print('CF_STAGE '+json.dumps({'stage':'error','detail':f'#{row["id"]}: {str(exc)[:300]}'},ensure_ascii=True),flush=True)
         with db:
