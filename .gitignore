@@ -14,3 +14,5 @@ assets/
 settings.json
 campaigns.json
 dashboard-job.log
+
+*.production.lock
