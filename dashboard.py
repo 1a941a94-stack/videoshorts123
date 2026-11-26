@@ -92,7 +92,7 @@ def create_app(root=ROOT):
         try:
             sources=db.execute('SELECT * FROM sources ORDER BY id DESC').fetchall()
             videos=db.execute('SELECT * FROM videos ORDER BY checked DESC LIMIT 100').fetchall()
-            clips=db.execute('SELECT c.*,v.title FROM clips c JOIN videos v ON v.id=c.video_id ORDER BY c.id DESC LIMIT 100').fetchall()
+            clips=db.execute('SELECT c.*,v.title,v.url FROM clips c JOIN videos v ON v.id=c.video_id ORDER BY c.id DESC LIMIT 100').fetchall()
             stats=dict(db.execute('SELECT status,count(*) FROM clips GROUP BY status').fetchall())
             total=db.execute('SELECT count(*) FROM videos').fetchone()[0]
         finally: db.close()
@@ -204,12 +204,21 @@ def create_app(root=ROOT):
 
     @app.post('/jobs/<action>')
     def start_job(action):
-        if action not in ('scan','work','retry','import-short'): abort(404)
+        if action not in ('scan','work','retry','import-short','scan-telegram'): abort(404)
         with lock:
             if job['process'] and job['process'].poll() is None: abort(409,'Job already running')
             cmd=[sys.executable,'-u',str(ROOT/'pipeline.py'),'--db',str(dbpath)]
             if config.exists(): cmd+=['--config',str(config)]
             cmd.append(action)
+            if action=='scan-telegram':
+                from telegram_source import channel_name
+                try:
+                    channel=channel_name(request.form.get('channel',''))
+                    limit=int(request.form.get('history','100'))
+                    views=int(request.form.get('views','1000'))
+                    if not 1<=limit<=1000 or views<0: raise ValueError()
+                except ValueError: abort(400,'Invalid Telegram scan settings')
+                cmd += [channel,'--limit',str(limit),'--min-views',str(views)]
             if action=='import-short':
                 from urllib.parse import urlsplit,parse_qs
                 import re
