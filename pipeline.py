@@ -176,11 +176,15 @@ def main():
         if args.action=='add': add_source(db,args.query)
         elif args.action=='scan': print(json.dumps(scan(db,settings),ensure_ascii=False))
         elif args.action=='work':
+            before_failed=db.execute("SELECT count(*) FROM clips WHERE status='failed'").fetchone()[0]
             total=min(args.limit,db.execute("SELECT count(*) FROM clips WHERE status='pending'").fetchone()[0])
             print(f'CF_PROGRESS 0 {total}',flush=True)
             for i in range(total):
                 if not process(db,args.out,args.banner,args.campaigns): break
                 print(f'CF_PROGRESS {i+1} {total}',flush=True)
+            failures=db.execute("SELECT count(*) FROM clips WHERE status='failed'").fetchone()[0]-before_failed
+            print('CF_STAGE '+json.dumps({'stage':'batch_result','detail':f'{max(0,failures)} failed'},ensure_ascii=True),flush=True)
+            if failures>0: raise SystemExit(1)
         elif args.action=='retry':
             with db:
                 n=db.execute("UPDATE clips SET status='pending',updated=? WHERE status='failed' AND attempts<3",(int(time.time()),)).rowcount
