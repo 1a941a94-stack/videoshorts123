@@ -1,2 +1,4 @@
 -r requirements.txt
 faster-whisper>=1.1,<2
+# Faster Whisper 1.2.x uses metadata_errors, removed in PyAV 19.
+av>=11,<19
