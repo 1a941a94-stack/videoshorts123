@@ -182,7 +182,7 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
                 brandfile=Path(db.execute('PRAGMA database_list').fetchone()[2]).resolve().parent/'ad-brands.txt'
                 brands=brandfile.read_text(encoding='utf-8').splitlines() if brandfile.is_file() else []
                 try:
-                    verdict,reason=screen(source,b-a,brands)
+                    verdict,reason=screen(source,b-a,brands,reference_dir=brandfile.parent/'assets'/'ad-references')
                 except Exception as exc:
                     verdict,reason='review',f'Screening incomplete: {str(exc)[:250]}'
                 with db:
