@@ -1,5 +1,7 @@
 """Local-only dashboard. Do not expose directly to the Internet."""
 import json
+import sqlite3
+import time
 import os
 import secrets
 import subprocess
@@ -9,6 +11,7 @@ from pathlib import Path
 from flask import Flask, render_template, request, redirect, url_for, abort, send_file, session
 from pipeline import connect, add_source, DEFAULTS
 from banners import Banner
+from publishing import init, add_account, enqueue, approve, measure
 
 ROOT=Path(__file__).resolve().parent
 
@@ -153,6 +156,46 @@ def create_app(root=ROOT):
                 proc=subprocess.Popen(cmd,cwd=root,stdout=fp,stderr=subprocess.STDOUT,env=env)
             job.update(process=proc,action=action,log=log)
         return redirect(url_for('index'))
+
+    @app.get('/publishing')
+    def publication_page():
+        db=init(connect(dbpath))
+        try:
+            accounts=db.execute('SELECT * FROM accounts ORDER BY id').fetchall()
+            drafts=db.execute("""SELECT p.*,a.name account_name,c.campaign,m.views,m.accepted_views,m.revenue_kopecks
+                FROM publications p JOIN accounts a ON a.id=p.account_id JOIN clips c ON c.id=p.clip_id
+                LEFT JOIN measurements m ON m.publication_id=p.id ORDER BY p.id DESC LIMIT 200""").fetchall()
+            ready=db.execute("SELECT id FROM clips WHERE status='done' ORDER BY id DESC LIMIT 200").fetchall()
+            totals=db.execute("SELECT coalesce(sum(views),0),coalesce(sum(accepted_views),0),coalesce(sum(revenue_kopecks),0) FROM measurements").fetchone()
+            return render_template('publishing.html',accounts=accounts,drafts=drafts,ready=ready,totals=totals,csrf=session['csrf'])
+        finally: db.close()
+
+    @app.post('/publishing/<action>')
+    def publication_action(action):
+        db=init(connect(dbpath))
+        try:
+            if action=='account':
+                add_account(db,request.form['name'],request.form['platform'],request.form['destination'],
+                    request.form['token_env'],request.form.get('topic',''),int(request.form.get('daily','2')))
+            elif action=='toggle':
+                with db: db.execute('UPDATE accounts SET enabled=1-enabled WHERE id=?',(int(request.form['id']),))
+            elif action=='draft':
+                enqueue(db,int(request.form['account']),int(request.form['clip']),request.form['caption'],int(request.form.get('scheduled') or time.time()))
+            elif action=='approve':
+                if not approve(db,int(request.form['id'])): abort(409)
+            elif action=='measure':
+                measure(db,int(request.form['id']),int(request.form['views']),int(request.form['accepted']),int(request.form['kopecks']))
+            elif action=='send':
+                with lock:
+                    if job['process'] and job['process'].poll() is None: abort(409,'Job already running')
+                    log=root/'dashboard-job.log'
+                    with log.open('wb') as fp:
+                        proc=subprocess.Popen([sys.executable,'-u',str(ROOT/'publishing.py'),'--root',str(root),'send'],cwd=root,stdout=fp,stderr=subprocess.STDOUT)
+                    job.update(process=proc,action='send',log=log)
+            else: abort(404)
+        except (ValueError,KeyError,sqlite3.IntegrityError): abort(400,'Invalid publication settings')
+        finally: db.close()
+        return redirect(url_for('publication_page'))
 
     @app.get('/clips/<int:cid>/video')
     def video(cid):
