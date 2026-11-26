@@ -19,7 +19,7 @@ def classify(text,brands=()):
     if DOMAIN.search(text): return 'domain'
     return None
 
-def screen(source,duration,brands=(),speech=True):
+def screen(source,duration,brands=(),speech=True,reference_dir=None):
     import cv2
     from source_media import stage
     exe=os.getenv('CLIP_TESSERACT') or shutil.which('tesseract')
@@ -28,6 +28,9 @@ def screen(source,duration,brands=(),speech=True):
     langs=subprocess.run([exe,'--list-langs'],capture_output=True,text=True,check=True,timeout=15).stdout.splitlines()
     if not {'rus','eng'}.issubset(set(x.strip() for x in langs)):
         return 'review','Tesseract rus and eng language packs required'
+    from ad_visual import VisualAds
+    visual=VisualAds(reference_dir) if reference_dir else None
+    visual_hits={}
     cap=cv2.VideoCapture(str(source))
     qr=cv2.QRCodeDetector()
     findings=set()
@@ -46,6 +49,14 @@ def screen(source,duration,brands=(),speech=True):
                 if max(h,w)>1280:
                     scale=1280/max(h,w)
                     frame=cv2.resize(frame,(round(w*scale),round(h*scale)))
+                if visual:
+                    match=visual.match(frame)
+                    if match:
+                        name,score,_=match
+                        visual_hits[name]=visual_hits.get(name,0)+1
+                        if visual_hits[name]>=2:
+                            return 'rejected',f'Advertising reference {name} matched twice (score {score:.2f})'
+                        findings.add(f'visual:{name}')
                 if qr.detect(frame)[0]: findings.add('qr')
                 if not cv2.imwrite(str(framepath),frame): raise RuntimeError('Cannot write OCR frame')
                 result=subprocess.run([exe,str(framepath),'stdout','-l','rus+eng','--psm','11'],capture_output=True,text=True,encoding='utf-8',errors='replace',check=True,timeout=20)
