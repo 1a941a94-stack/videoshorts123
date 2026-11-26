@@ -103,7 +103,7 @@ def create_app(root=ROOT):
             where=[]; params=[]
             if status=='done': where.append("c.output IS NOT NULL AND c.status!='archived'")
             elif status!='all': where.append('c.status=?'); params.append(status)
-            else: where.append("c.status!='archived'")
+            else: where.append("c.status NOT IN ('archived','purged')")
             batch_id=request.args.get('batch',type=int)
             if batch_id and batch_id>0: where.append('EXISTS (SELECT 1 FROM production_run_tasks rt WHERE rt.clip_id=c.id AND rt.run_id=? AND rt.status=\'done\')'); params.append(batch_id)
             if query: where.append("(instr(lower(coalesce(v.title,'')),lower(?))>0 OR cast(c.id as text)=?)"); params.extend([query,query.removeprefix('#')])
@@ -171,6 +171,24 @@ def create_app(root=ROOT):
             except (ValueError,Timeout,OSError) as exc: abort(400,str(exc))
             finally: db.close()
         return redirect(url_for('index')+'#queue')
+
+    @app.get('/api/storage')
+    def storage_state():
+        from storage_control import stats
+        db=connect(dbpath)
+        try: return jsonify(stats(root,db))
+        finally: db.close()
+
+    @app.post('/storage/clear-cache')
+    def storage_clear():
+        from storage_control import clear_cache
+        from filelock import FileLock,Timeout
+        with lock:
+            if (job['process'] and job['process'].poll() is None) or preview_lock.locked(): abort(409,'Остановите производство')
+            try:
+                with FileLock(str(dbpath)+'.production.lock',timeout=0): clear_cache(root)
+            except (Timeout,ValueError,OSError) as exc: abort(409,str(exc))
+        return redirect(url_for('index')+'#storage')
 
     @app.get('/api/production')
     def production_state():
@@ -863,7 +881,7 @@ def create_app(root=ROOT):
         except ValueError: abort(400)
         if not 1<=len(ids)<=100 or min(ids)<1 or max(ids)>9223372036854775807: abort(400,'Select 1–100 clips')
         action=request.form.get('operation')
-        if action not in ('archive','restore','remontage','export'): abort(400)
+        if action not in ('archive','restore','remontage','export','purge'): abort(400)
         marks=','.join('?' for _ in ids)
         db=connect(dbpath)
         try:
@@ -894,6 +912,11 @@ def create_app(root=ROOT):
                     raise
             try:
                 with FileLock(str(dbpath)+'.production.lock',timeout=0):
+                    if action=='purge':
+                        from storage_control import purge
+                        try: purge(db,root,ids)
+                        except (ValueError,OSError) as exc: abort(409,str(exc))
+                        return redirect(url_for('index',clip_status='archived')+'#clips')
                     with db:
                         db.execute('BEGIN IMMEDIATE')
                         rows=db.execute(f'SELECT id,status,output FROM clips WHERE id IN ({marks})',ids).fetchall()
