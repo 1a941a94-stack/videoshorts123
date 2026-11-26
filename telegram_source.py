@@ -26,7 +26,7 @@ def login(root):
         try: c.start()
         finally: c.disconnect()
 
-def scan_channel(db,root,channel,limit=100,min_views=1000):
+def scan_channel(db,root,channel,limit=100,min_views=1000,cursor=None):
     from short_media import candidate
     channel=channel_name(channel)
     if not 1<=limit<=1000: raise ValueError('Invalid history limit')
@@ -38,7 +38,11 @@ def scan_channel(db,root,channel,limit=100,min_views=1000):
             entity=c.get_entity(channel)
             if getattr(entity,'noforwards',False): raise ValueError('Channel restricts saving or forwarding')
             count=0
-            for i,msg in enumerate(c.iter_messages(entity,limit=limit),1):
+            newest=cursor or 0
+            # First scan recent history; subsequent scans oldest-first to avoid gaps.
+            opts={'limit':limit} if cursor is None else {'limit':limit,'min_id':cursor,'reverse':True}
+            for i,msg in enumerate(c.iter_messages(entity,**opts),1):
+                newest=max(newest,msg.id)
                 if i%10==0: stage('telegram_scan',f'@{channel}: {i}/{limit}')
                 if not msg.video or getattr(msg,'noforwards',False): continue
                 duration=getattr(msg.file,'duration',0) or 0
@@ -55,8 +59,41 @@ def scan_channel(db,root,channel,limit=100,min_views=1000):
                         (vid,duration,clips[0]['score'],clips[0]['rank'],now))
                     count+=row.rowcount
             stage('telegram_scan',f'New candidates: {count}')
-            return count
+            return count,newest
         finally: c.disconnect()
+
+def add_channels(db,values,limit=100,min_views=1000):
+    if not 1<=limit<=1000 or min_views<0: raise ValueError('Invalid settings')
+    names=list(dict.fromkeys(channel_name(v) for v in values if v.strip()))
+    if not names or len(names)>200: raise ValueError('Provide 1–200 channels')
+    with db:
+        for name in names:
+            db.execute("INSERT OR IGNORE INTO telegram_channels(name,history,min_views) VALUES(?,?,?)",(name,limit,min_views))
+    return len(names)
+
+def scan_library(db,root,full=False):
+    from telethon.errors import FloodWaitError
+    rows=db.execute("SELECT * FROM telegram_channels WHERE enabled=1 ORDER BY coalesce(last_scan,0),name").fetchall()
+    failures=0
+    print(f'CF_PROGRESS 0 {len(rows)}',flush=True)
+    for i,row in enumerate(rows,1):
+        name=row['name']
+        try:
+            stage('telegram_scan',f'@{name} · {i}/{len(rows)}')
+            count,newest=scan_channel(db,root,name,row['history'],row['min_views'],None if full else row['cursor'])
+            with db:
+                db.execute("UPDATE telegram_channels SET cursor=max(coalesce(cursor,0),?),last_scan=?,found=found+?,error=NULL WHERE name=?",(newest,int(time.time()),count,name))
+        except FloodWaitError as exc:
+            with db: db.execute("UPDATE telegram_channels SET error=? WHERE name=?",(f'Telegram rate limit: {exc.seconds}s',name))
+            stage('error',f'Telegram rate limit: {exc.seconds}s; stopped')
+            return 1
+        except Exception as exc:
+            failures+=1
+            with db: db.execute("UPDATE telegram_channels SET error=?,last_scan=? WHERE name=?",(str(exc)[:300],int(time.time()),name))
+            stage('error',f'@{name}: {type(exc).__name__}')
+        print(f'CF_PROGRESS {i} {len(rows)}',flush=True)
+        if i<len(rows): time.sleep(2)
+    return failures
 
 def retrieve(root,vid,url,target):
     from urllib.parse import urlsplit
