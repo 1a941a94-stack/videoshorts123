@@ -16,3 +16,5 @@ campaigns.json
 dashboard-job.log
 
 *.production.lock
+
+publication.lock
