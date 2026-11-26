@@ -1,0 +1,17 @@
+{
+  "campaigns": [
+    {
+      "name": "demo",
+      "path": "assets/banner.png",
+      "enabled": true,
+      "weight": 1,
+      "width": 1000,
+      "height": 260,
+      "position": "bottom",
+      "margin": 180,
+      "opacity": 1,
+      "start": 0,
+      "end": 45
+    }
+  ]
+}
