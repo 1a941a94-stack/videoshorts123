@@ -35,6 +35,7 @@ def resolve(root,item):
     spec=validate(templates(root)[name] if name else {'fit':'cover'})
     env=dict.fromkeys(ENV_KEYS)
     env.update(CLIP_SHORT_TEMPLATE=json.dumps(spec),CLIP_SHORT_LAYOUT=spec['layout'],CLIP_CAPTIONS='1' if item['captions'] else '0',CLIP_NORMALIZE_AUDIO='1',CLIP_COVER_MODE='auto',CLIP_SMART_SPEECH='1' if item['mode']=='long' else '0')
+    if spec.get('caption_style'): env['CLIP_CAPTION_STYLE']=json.dumps(spec['caption_style'])
     if spec['background']:
         path=root/'assets'/'backgrounds'/spec['background']
         if not path.is_file(): raise ValueError('Background missing')
