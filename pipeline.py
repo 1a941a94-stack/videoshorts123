@@ -31,6 +31,9 @@ def connect(path):
     db.execute("PRAGMA foreign_keys=ON")
     db.execute("PRAGMA journal_mode=WAL")
     db.executescript(SCHEMA)
+    if 'campaign' not in {r[1] for r in db.execute('PRAGMA table_info(clips)')}:
+        db.execute('ALTER TABLE clips ADD COLUMN campaign TEXT')
+        db.commit()
     return db
 
 def add_source(db, query):
@@ -108,7 +111,7 @@ def claim(db):
         db.rollback()
         raise
 
-def process(db, out, banner=None):
+def process(db, out, banner=None, campaigns=None):
     row = claim(db)
     if row is None: return False
     out.mkdir(parents=True,exist_ok=True)
@@ -116,11 +119,13 @@ def process(db, out, banner=None):
     dest = out / f"clip_{row['id']}.mp4"
     tmp = out / f"clip_{row['id']}.partial.mp4"
     try:
+        from banners import choose
+        selected=choose(campaigns,row['end']-row['start']) if campaigns else banner
         download(row['url'],dict(row),raw)
-        render(raw,0,row['end']-row['start'],tmp,banner)
+        render(raw,0,row['end']-row['start'],tmp,selected)
         tmp.replace(dest)
         with db:
-            db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=? WHERE id=?", (str(dest),int(time.time()),row['id']))
+            db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,row['id']))
     except Exception as exc:
         with db:
             db.execute("UPDATE clips SET status='failed',error=?,updated=? WHERE id=?", (str(exc)[:1000],int(time.time()),row['id']))
@@ -144,7 +149,9 @@ def main():
     work=sub.add_parser('work')
     work.add_argument('--limit',type=int,default=10)
     work.add_argument('--out',type=Path,default=Path('output'))
-    work.add_argument('--banner',type=Path)
+    ads=work.add_mutually_exclusive_group()
+    ads.add_argument('--banner',type=Path)
+    ads.add_argument('--campaigns',type=Path)
     args=ap.parse_args()
     settings=DEFAULTS.copy()
     if args.config:
@@ -157,7 +164,7 @@ def main():
         elif args.action=='scan': print(json.dumps(scan(db,settings),ensure_ascii=False))
         elif args.action=='work':
             for _ in range(args.limit):
-                if not process(db,args.out,args.banner): break
+                if not process(db,args.out,args.banner,args.campaigns): break
         elif args.action=='retry':
             with db:
                 db.execute("UPDATE clips SET status='pending',updated=? WHERE status='failed' AND attempts<3",(int(time.time()),))
