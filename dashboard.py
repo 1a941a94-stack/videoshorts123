@@ -204,12 +204,22 @@ def create_app(root=ROOT):
 
     @app.post('/jobs/<action>')
     def start_job(action):
-        if action not in ('scan','work','retry'): abort(404)
+        if action not in ('scan','work','retry','import-short'): abort(404)
         with lock:
             if job['process'] and job['process'].poll() is None: abort(409,'Job already running')
             cmd=[sys.executable,'-u',str(ROOT/'pipeline.py'),'--db',str(dbpath)]
             if config.exists(): cmd+=['--config',str(config)]
             cmd.append(action)
+            if action=='import-short':
+                from urllib.parse import urlsplit,parse_qs
+                import re
+                u=urlsplit(request.form.get('url','').strip())
+                vid=''
+                if u.scheme=='https' and u.hostname in ('youtube.com','www.youtube.com','m.youtube.com'):
+                    vid=u.path.split('/')[2] if u.path.startswith('/shorts/') else parse_qs(u.query).get('v',[''])[0] if u.path=='/watch' else ''
+                elif u.scheme=='https' and u.hostname=='youtu.be': vid=u.path.strip('/')
+                if not re.fullmatch(r'[A-Za-z0-9_-]{11}',vid): abort(400,'Invalid YouTube link')
+                cmd.append(vid)
             if action in ('scan','work'):
                 mode=request.form.get('mode','long')
                 if mode not in ('short','long'): abort(400)
