@@ -1,5 +1,7 @@
 """Conservative local screening; no detection is a guarantee of ad-free media."""
 import re
+import hashlib
+from functools import lru_cache
 import json
 import os
 import shutil
@@ -19,14 +21,18 @@ def classify(text,brands=()):
     if DOMAIN.search(text): return 'domain'
     return None
 
+@lru_cache(maxsize=4)
+def languages(exe):
+    result=subprocess.run([exe,'--list-langs'],capture_output=True,text=True,check=True,timeout=15)
+    return frozenset(x.strip() for x in result.stdout.splitlines())
+
 def screen(source,duration,brands=(),speech=True,reference_dir=None,transcript=None):
     import cv2
     from source_media import stage
     exe=os.getenv('CLIP_TESSERACT') or shutil.which('tesseract')
     if not exe:
         return 'review','Tesseract not installed; OCR unavailable'
-    langs=subprocess.run([exe,'--list-langs'],capture_output=True,text=True,check=True,timeout=15).stdout.splitlines()
-    if not {'rus','eng'}.issubset(set(x.strip() for x in langs)):
+    if not {'rus','eng'}.issubset(languages(exe)):
         return 'review','Tesseract rus and eng language packs required'
     from ad_visual import VisualAds
     visual=VisualAds(reference_dir) if reference_dir else None
@@ -35,6 +41,8 @@ def screen(source,duration,brands=(),speech=True,reference_dir=None,transcript=N
     qr=cv2.QRCodeDetector()
     findings=set()
     count=0
+    ocr_cache={}
+    ocr_env={**os.environ,'OMP_THREAD_LIMIT':'1'}
     try:
         with tempfile.TemporaryDirectory() as folder:
             framepath=Path(folder)/'frame.png'
@@ -58,9 +66,12 @@ def screen(source,duration,brands=(),speech=True,reference_dir=None,transcript=N
                             return 'rejected',f'Advertising reference {name} matched twice (score {score:.2f})'
                         findings.add(f'visual:{name}')
                 if qr.detect(frame)[0]: findings.add('qr')
-                if not cv2.imwrite(str(framepath),frame): raise RuntimeError('Cannot write OCR frame')
-                result=subprocess.run([exe,str(framepath),'stdout','-l','rus+eng','--psm','11'],capture_output=True,text=True,encoding='utf-8',errors='replace',check=True,timeout=20)
-                hit=classify(result.stdout,brands)
+                key=(frame.shape,hashlib.sha256(frame.tobytes()).digest())
+                if key not in ocr_cache:
+                    if not cv2.imwrite(str(framepath),frame): raise RuntimeError('Cannot write OCR frame')
+                    result=subprocess.run([exe,str(framepath),'stdout','-l','rus+eng','--psm','11'],capture_output=True,text=True,encoding='utf-8',errors='replace',check=True,timeout=20,env=ocr_env)
+                    ocr_cache[key]=classify(result.stdout,brands)
+                hit=ocr_cache[key]
                 if hit=='promo_text': return 'rejected',f'Advertising phrase at {t:.1f}s'
                 if hit: findings.add(hit)
                 if i%10==0: stage('ad_check',f'OCR {t:.1f}/{duration:.1f}s')
