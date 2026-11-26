@@ -108,7 +108,7 @@ def create_app(root=ROOT):
                     log=fp.read().decode('utf-8','replace')
         return render_template('dashboard.html',sources=sources,telegram_channels=telegram_channels,videos=videos,clips=clips,stats=stats,total=total,
             running=running,result=result,log=log,action=job['action'],csrf=session['csrf'],
-            campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
+            ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
     @app.post('/telegram/channels')
     def telegram_channels_add():
@@ -166,6 +166,41 @@ def create_app(root=ROOT):
             if not approve_short(db,cid): abort(404)
         finally: db.close()
         return redirect(url_for('index')+'#clips')
+
+    @app.post('/ad-references')
+    def add_ad_reference():
+        import cv2
+        import numpy as np
+        import re
+        name=request.form.get('name','').strip()
+        upload=request.files.get('image')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',name) or not upload: abort(400,'Invalid reference')
+        image=cv2.imdecode(np.frombuffer(upload.read(),dtype=np.uint8),cv2.IMREAD_GRAYSCALE)
+        if image is None or min(image.shape)<20 or max(image.shape)>4000 or image.std()<8: abort(400,'Invalid reference image')
+        if max(image.shape)>640:
+            ratio=640/max(image.shape)
+            image=cv2.resize(image,(round(image.shape[1]*ratio),round(image.shape[0]*ratio)),interpolation=cv2.INTER_AREA)
+        if min(image.shape)<20 or image.std()<8: abort(400,'Reference too small after resizing')
+        folder=assets/'ad-references'
+        with lock:
+            if job['process'] and job['process'].poll() is None: abort(409)
+            folder.mkdir(parents=True,exist_ok=True)
+            if len(list(folder.glob('*.png')))>=50 and not (folder/(name+'.png')).exists(): abort(400,'Reference limit reached')
+            ok,data=cv2.imencode('.png',image)
+            if not ok: abort(400)
+            temp=folder/(name+'.tmp')
+            temp.write_bytes(data.tobytes())
+            temp.replace(folder/(name+'.png'))
+        return redirect(url_for('index')+'#ad-references')
+
+    @app.post('/ad-references/<name>/delete')
+    def delete_ad_reference(name):
+        import re
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',name): abort(400)
+        with lock:
+            if job['process'] and job['process'].poll() is None: abort(409)
+            (assets/'ad-references'/(name+'.png')).unlink(missing_ok=True)
+        return redirect(url_for('index')+'#ad-references')
 
     @app.post('/short-background')
     def short_background():
