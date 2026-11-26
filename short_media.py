@@ -42,19 +42,20 @@ def render_short(source,duration,output,banner=None):
     vf+='[fg]'
     # Background is optional; otherwise use a dark blue canvas.
     if background:
-        cmd+=['-loop','1','-framerate','30','-i',str(Path(background).resolve())]
-        vf+=";[1:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[bg]"
+        from banners import MOTION_EXT,media_input
+        cmd+=media_input(background) if Path(background).suffix.lower() in MOTION_EXT else ['-loop','1','-framerate','30','-i',str(Path(background).resolve())]
+        vf+=";[1:v]setpts=PTS-STARTPTS,fps=30,scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[bg]"
         ad_index=2
     else:
         vf+=f";color=c={color}:s=1080x1920:r=30[bg]"
         ad_index=1
     vf+=f";[bg][fg]overlay=(W-w)/2+({spec['x']}):(H-h)/2+({spec['y']}):shortest=1"
     if banner:
-        from banners import Banner
+        from banners import Banner,media_input
         from dataclasses import replace
         spec=banner if isinstance(banner,Banner) else Banner(Path(banner))
         spec=replace(spec,position='top',margin=160,height=min(spec.height,280))
-        cmd+=['-i',str(spec.path.resolve())]
+        cmd+=media_input(spec.path)
         vf+=spec.filter(duration).replace('[1:v]',f'[{ad_index}:v]')
     else: vf+='[v]'
     with tempfile.TemporaryDirectory() as folder:
