@@ -213,6 +213,32 @@ def create_app(root=ROOT):
             except ValueError as exc: abort(400,str(exc))
         return redirect(url_for('index')+'#production-profiles')
 
+    @app.post('/local-import')
+    def local_import():
+        import tempfile
+        from local_import import import_file,EXTENSIONS
+        uploads=request.files.getlist('videos')
+        if not 1<=len(uploads)<=50: abort(400,'Upload 1–50 videos per request')
+        results=[]
+        db=connect(dbpath)
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                for i,upload in enumerate(uploads):
+                    name=Path((upload.filename or '').replace('\\','/')).name
+                    suffix=Path(name).suffix.lower()
+                    if suffix not in EXTENSIONS:
+                        results.append({'name':name,'status':'error','detail':'Unsupported extension'})
+                        continue
+                    path=Path(folder)/(str(i)+suffix)
+                    try:
+                        upload.save(path)
+                        results.append({'name':name,'status':import_file(db,root,path,title=name)})
+                    except (ValueError,KeyError,OSError,subprocess.SubprocessError,sqlite3.Error) as exc:
+                        results.append({'name':name,'status':'error','detail':str(exc)[:200]})
+                    finally: path.unlink(missing_ok=True)
+        finally: db.close()
+        return jsonify(results=results)
+
     @app.post('/short-preview')
     def short_preview():
         import tempfile
