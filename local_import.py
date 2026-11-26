@@ -40,7 +40,13 @@ def import_file(db,root,source,title=None):
         now=int(time.time())
         db.execute('BEGIN IMMEDIATE')
         with db:
-            if db.execute('SELECT 1 FROM videos WHERE id=?',(vid,)).fetchone(): return 'duplicate'
+            existing=db.execute('SELECT url FROM videos WHERE id=?',(vid,)).fetchone()
+            if existing:
+                name=existing['url'].removeprefix('local:')
+                if name==vid+Path(name).suffix and Path(name).suffix in EXTENSIONS:
+                    previous=folder/name
+                    if not previous.exists(): os.replace(temp,previous)
+                return 'duplicate'
             os.replace(temp,target)
             db.execute("INSERT INTO videos(id,url,title,views,duration,status,checked) VALUES (?,?,?,?,?,'ready',?)",(vid,'local:'+target.name,(title or source.name)[:200],0,duration,now))
             db.execute("INSERT INTO clips(video_id,start,end,score,rank,mode,status,updated) VALUES (?,0,?,0.5,0.5,'short','pending',?)",(vid,duration,now))
