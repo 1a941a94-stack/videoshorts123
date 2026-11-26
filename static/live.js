@@ -1,7 +1,7 @@
 (() => {
 const $=id=>document.getElementById(id);
 const actions={scan:'Поиск видео',work:'Монтаж роликов',retry:'Возврат задач в очередь',send:'Публикация'};
-const stages={search:'Поиск источника',inspect:'Проверка видео и пиков',download:'Скачивание фрагмента',framing:'Анализ лиц и кадрирование',captions:'Распознавание речи',render:'Рендеринг видео',save:'Сохранение результата',error:'Ошибка задачи',retry:'Задач возвращено в очередь'};
+const stages={search:'Поиск источника',inspect:'Проверка видео и пиков',download:'Скачивание фрагмента',fallback:'Резервное скачивание исходника',localcut:'Локальная нарезка',batch_result:'Итог обработки',framing:'Анализ лиц и кадрирование',captions:'Распознавание речи',render:'Рендеринг видео',save:'Сохранение результата',error:'Ошибка задачи',retry:'Задач возвращено в очередь'};
 let priorRunning=false, initial=true;
 function clock(s){return [Math.floor(s/3600),Math.floor(s/60)%60,s%60].map(x=>String(x).padStart(2,'0')).join(':')}
 async function poll(){
@@ -12,7 +12,7 @@ async function poll(){
  $('live-connection').textContent='● Связь с сервером';
  const mode=d.running?'running':d.result===null?'idle':d.result===0?'finished':'failed';
  $('live-job').dataset.state=mode;
- $('live-title').textContent=d.running?(actions[d.action]||'Обработка'):mode==='idle'?'Готов к работе':mode==='finished'?'Процесс завершён':'Процесс завершился с ошибкой';
+ $('live-title').textContent=d.running?(actions[d.action]||'Обработка'):mode==='idle'?'Готов к работе':mode==='finished'?'Процесс завершён':'Завершено с ошибками';
  $('live-stage').textContent=[stages[d.stage],d.detail].filter(Boolean).join(' · ')||'—';
  $('live-time').textContent=clock(Math.max(0,d.elapsed||0));
  const known=Number.isInteger(d.total)&&d.total>0&&Number.isInteger(d.done);
@@ -20,7 +20,7 @@ async function poll(){
  $('live-track').classList.toggle('indeterminate',d.running&&!known);
  $('live-fill').style.width=known?pct+'%':d.running?'35%':'0%';
  if(known){$('live-track').setAttribute('aria-valuenow',pct);$('live-track').setAttribute('aria-valuemin',0);$('live-track').setAttribute('aria-valuemax',100)}else $('live-track').removeAttribute('aria-valuenow');
- $('live-count').textContent=known?d.done+' / '+d.total+' '+(d.action==='scan'?'источников':'задач')+' · '+pct+'%':'Прогресс пока неизвестен';
+ $('live-count').textContent=known?d.done+' / '+d.total+' '+(d.action==='scan'?'источников проверено':'задач обработано')+' · '+pct+'%':'Прогресс пока неизвестен';
  $('live-activity').textContent=d.running?(d.log_age===null?'Ожидание первого сообщения':d.log_age>45?'Нет новых сообщений '+d.log_age+' с — процесс ещё запущен':'Последняя активность '+d.log_age+' с назад'):d.result===null?'Ожидание команды':'Код завершения: '+d.result;
  $('live-current').textContent=d.active.map(c=>'#'+c.id+' · '+(c.title||'')).join(' | ');
  const log=$('live-log'), follow=log.scrollHeight-log.scrollTop-log.clientHeight<40;
