@@ -1,6 +1,6 @@
 (() => {
 const $=id=>document.getElementById(id);
-const actions={'scan-telegram':'Поиск в Telegram','import-short':'Импорт короткого видео',scan:'Поиск видео',work:'Монтаж роликов',retry:'Возврат задач в очередь',send:'Публикация'};
+const actions={'scan-telegram-library':'Поиск по библиотеке Telegram','scan-telegram':'Поиск в Telegram','import-short':'Импорт короткого видео',scan:'Поиск видео',work:'Монтаж роликов',retry:'Возврат задач в очередь',send:'Публикация'};
 const stages={telegram_scan:'Проверка истории Telegram',import_short:'Импорт видео',search:'Поиск источника',inspect:'Проверка видео и пиков',download:'Скачивание исходника',cache:'Исходник из кеша',boundaries:'Подбор границ речи',speech:'Анализ предложений Whisper',fallback:'Резервное скачивание исходника',localcut:'Локальная нарезка',batch_result:'Итог обработки',framing:'Анализ лиц и кадрирование',captions:'Распознавание речи',render:'Рендеринг видео',save:'Сохранение результата',error:'Ошибка задачи',retry:'Задач возвращено в очередь'};
 let priorRunning=false, initial=true;
 function clock(s){return [Math.floor(s/3600),Math.floor(s/60)%60,s%60].map(x=>String(x).padStart(2,'0')).join(':')}
@@ -20,7 +20,7 @@ async function poll(){
  $('live-track').classList.toggle('indeterminate',d.running&&!known);
  $('live-fill').style.width=known?pct+'%':d.running?'35%':'0%';
  if(known){$('live-track').setAttribute('aria-valuenow',pct);$('live-track').setAttribute('aria-valuemin',0);$('live-track').setAttribute('aria-valuemax',100)}else $('live-track').removeAttribute('aria-valuenow');
- $('live-count').textContent=known?d.done+' / '+d.total+' '+(d.action==='scan'?'источников проверено':'задач обработано')+' · '+pct+'%':'Прогресс пока неизвестен';
+ $('live-count').textContent=known?d.done+' / '+d.total+' '+(['scan','scan-telegram-library'].includes(d.action)?'источников проверено':'задач обработано')+' · '+pct+'%':'Прогресс пока неизвестен';
  $('live-activity').textContent=d.running?(d.log_age===null?'Ожидание первого сообщения':d.log_age>45?'Нет новых сообщений '+d.log_age+' с — процесс ещё запущен':'Последняя активность '+d.log_age+' с назад'):d.result===null?'Ожидание команды':'Код завершения: '+d.result;
  $('live-current').textContent=d.active.map(c=>'#'+c.id+' · '+(c.title||'')).join(' | ');
  const log=$('live-log'), follow=log.scrollHeight-log.scrollTop-log.clientHeight<40;
@@ -32,7 +32,7 @@ async function poll(){
   // Refresh results only, keeping form inputs and live log intact.
   const html=await fetch('/',{cache:'no-store'}).then(r=>r.text());
   const doc=new DOMParser().parseFromString(html,'text/html');
-  for(const id of ['videos','clips']){const old=$(id).querySelector('.table'),fresh=doc.getElementById(id).querySelector('.table');if(old&&fresh)old.replaceWith(fresh)}
+  for(const id of ['videos','clips','telegram']){const old=$(id).querySelector('.table'),fresh=doc.getElementById(id).querySelector('.table');if(old&&fresh)old.replaceWith(fresh)}
  }
  priorRunning=d.running;initial=false;
  }catch(e){$('live-connection').textContent='Нет связи с сервером';$('live-activity').textContent='Повторяем подключение…';$('live-job').dataset.state='offline'}
