@@ -1,6 +1,7 @@
 (() => {
  const views={
   overview:{title:'Производство',ids:['production-runs','production-controls']},
+  queue:{title:'Очередь производства',ids:['queue']},
   configurations:{title:'Конфигурации',ids:['run-configurations']},
   production:{title:'Расширенное производство',ids:['production-controls','factory']},
   library:{title:'Библиотека видео',ids:['local-library','telegram','sources','videos']},
