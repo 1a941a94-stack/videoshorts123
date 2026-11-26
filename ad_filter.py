@@ -29,7 +29,8 @@ def languages(exe):
 def screen(source,duration,brands=(),speech=True,reference_dir=None,transcript=None):
     import cv2
     from source_media import stage
-    exe=os.getenv('CLIP_TESSERACT') or shutil.which('tesseract')
+    from diagnostics import tesseract_path
+    exe=tesseract_path()
     if not exe:
         return 'review','Tesseract not installed; OCR unavailable'
     if not {'rus','eng'}.issubset(languages(exe)):
