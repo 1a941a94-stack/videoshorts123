@@ -8,7 +8,7 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
-from flask import Flask, render_template, request, redirect, url_for, abort, send_file, session
+from flask import Flask, render_template, request, redirect, url_for, abort, send_file, session, jsonify
 from pipeline import connect, add_source, DEFAULTS
 from banners import Banner
 from publishing import init, add_account, enqueue, approve, measure
@@ -26,7 +26,7 @@ def create_app(root=ROOT):
     campaigns=root/'campaigns.json'
     assets=root/'assets'
     lock=threading.Lock()
-    job={'process':None,'action':None,'log':None}
+    job={'process':None,'action':None,'log':None,'started':None,'finished':None}
 
     def read_json(path,default):
         return json.loads(path.read_text(encoding='utf-8')) if path.exists() else default
@@ -41,6 +41,50 @@ def create_app(root=ROOT):
         if request.host.split(':')[0] not in ('localhost','127.0.0.1'): abort(403)
         if 'csrf' not in session: session['csrf']=secrets.token_hex(24)
         if request.method=='POST' and not secrets.compare_digest(request.form.get('csrf',''),session['csrf']): abort(403)
+
+    @app.get('/api/job-status')
+    def job_status():
+        with lock:
+            proc=job['process']
+            result=proc.poll() if proc else None
+            running=proc is not None and result is None
+            if proc and not running and job['finished'] is None:
+                job['finished']=time.time()
+            started=job['started']
+            elapsed=round((job['finished'] or time.time())-started) if started else 0
+            log=''
+            age=None
+            if job['log'] and job['log'].exists():
+                path=job['log']
+                age=max(0,round(time.time()-path.stat().st_mtime))
+                with path.open('rb') as fp:
+                    fp.seek(max(0,path.stat().st_size-65536))
+                    log=fp.read().decode('utf-8','replace')
+            action=job['action']
+        done=total=None
+        stage=detail=''
+        lines=[]
+        for line in log.splitlines():
+            if line.startswith('CF_PROGRESS '):
+                try: done,total=map(int,line.split()[1:])
+                except ValueError: pass
+            elif line.startswith('CF_STAGE '):
+                try:
+                    event=json.loads(line[9:])
+                    stage=event.get('stage','')
+                    detail=event.get('detail','')
+                except (ValueError,AttributeError): pass
+            else: lines.append(line)
+        db=connect(dbpath)
+        try:
+            stats=dict(db.execute('SELECT status,count(*) FROM clips GROUP BY status').fetchall())
+            stats['videos']=db.execute('SELECT count(*) FROM videos').fetchone()[0]
+            active=[dict(r) for r in db.execute("SELECT c.id,v.title FROM clips c JOIN videos v ON v.id=c.video_id WHERE c.status='running'")]
+        finally: db.close()
+        response=jsonify(running=running,result=result,action=action,elapsed=elapsed,log_age=age,
+            done=done,total=total,stage=stage,detail=detail,stats=stats,active=active,log='\n'.join(lines)[-18000:])
+        response.headers['Cache-Control']='no-store'
+        return response
 
     @app.get('/')
     def index():
@@ -154,7 +198,7 @@ def create_app(root=ROOT):
             log=root/'dashboard-job.log'
             with log.open('wb') as fp:
                 proc=subprocess.Popen(cmd,cwd=root,stdout=fp,stderr=subprocess.STDOUT,env=env)
-            job.update(process=proc,action=action,log=log)
+            job.update(process=proc,action=action,log=log,started=time.time(),finished=None)
         return redirect(url_for('index'))
 
     @app.get('/publishing')
@@ -191,7 +235,7 @@ def create_app(root=ROOT):
                     log=root/'dashboard-job.log'
                     with log.open('wb') as fp:
                         proc=subprocess.Popen([sys.executable,'-u',str(ROOT/'publishing.py'),'--root',str(root),'send'],cwd=root,stdout=fp,stderr=subprocess.STDOUT)
-                    job.update(process=proc,action='send',log=log)
+                    job.update(process=proc,action='send',log=log,started=time.time(),finished=None)
             else: abort(404)
         except (ValueError,KeyError,sqlite3.IntegrityError): abort(400,'Invalid publication settings')
         finally: db.close()
