@@ -81,6 +81,6 @@ def render_short(source,duration,output,banner=None,*,template=None,background_p
         stage('render',layout)
         audio=['-af','loudnorm=I=-16:TP=-1.5:LRA=11','-ar','48000','-b:a','160k'] if (normalize if normalize is not None else os.getenv('CLIP_NORMALIZE_AUDIO','1')=='1') else []
         cmd+=['-filter_complex_threads','1','-filter_complex',vf,'-map','[v]','-map','0:a?',
-              '-t',str(duration),'-c:v','libx264','-threads','2','-preset','veryfast','-crf','22',
-              '-pix_fmt','yuv420p','-c:a','aac',*audio,'-movflags','+faststart',str(output)]
-        subprocess.run(cmd,check=True,cwd=folder,timeout=600)
+              '-t',str(duration)]
+        from video_encoder import encode
+        encode(cmd,['-c:a','aac',*audio,'-movflags','+faststart'],output,folder,report=lambda msg:stage('render',msg))
