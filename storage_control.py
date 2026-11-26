@@ -10,11 +10,14 @@ def stats(root,db):
     out=root/'output'
     cache=out/'source-cache'
     trash=0
-    for row in db.execute("SELECT output,cover FROM clips WHERE status='archived'"):
+    counted=set()
+    for row in db.execute("SELECT output,cover FROM clips WHERE status='archived' UNION SELECT v.output,v.cover FROM clip_versions v JOIN clips c ON c.id=v.clip_id WHERE c.status='archived'"):
         for value in row:
             if value:
                 p=(root/value).resolve()
-                if p.is_relative_to(out) and p.is_file(): trash+=p.stat().st_size
+                if p.is_relative_to(out) and p.is_file() and p not in counted:
+                    counted.add(p)
+                    trash+=p.stat().st_size
     usage=shutil.disk_usage(root)
     return dict(free=usage.free,total=usage.total,cache=size(cache),originals=size(root/'local-sources'),output=max(0,size(out)-size(cache)-trash),trash=trash,assets=size(root/'assets'))
 
@@ -27,15 +30,18 @@ def purge(db,root,ids):
     if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publications'").fetchone():
         if db.execute(f'SELECT 1 FROM publications WHERE clip_id IN ({marks}) LIMIT 1',ids).fetchone(): raise ValueError('Есть записи публикации')
     paths=set()
-    for r in rows:
+    versions=db.execute(f'SELECT clip_id AS id,output,cover FROM clip_versions WHERE clip_id IN ({marks})',ids).fetchall()
+    for r in [*rows,*versions]:
         for key in ('output','cover'):
             if r[key]:
                 p=(root/r[key]).resolve()
                 if not p.is_relative_to(out) or p.suffix not in ('.mp4','.jpg'): raise ValueError('Недопустимый путь')
                 if db.execute('SELECT 1 FROM clips WHERE id!=? AND (output=? OR cover=?)',(r['id'],r[key],r[key])).fetchone(): raise ValueError('Файл используется другой записью')
+                if db.execute('SELECT 1 FROM clip_versions WHERE clip_id!=? AND (output=? OR cover=?)',(r['id'],r[key],r[key])).fetchone(): raise ValueError('Файл используется историей другого ролика')
                 paths.add(p)
     for p in paths: p.unlink(missing_ok=True)
     with db:
+        db.execute(f'DELETE FROM clip_versions WHERE clip_id IN ({marks})',ids)
         db.execute(f"UPDATE clips SET status='purged',output=NULL,cover=NULL,archived_status=NULL WHERE id IN ({marks})",ids)
     return len(rows)
 
