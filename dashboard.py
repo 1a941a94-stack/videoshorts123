@@ -11,7 +11,7 @@ from pathlib import Path
 from flask import Flask, render_template, request, redirect, url_for, abort, send_file, session, jsonify
 from pipeline import connect, add_source, DEFAULTS
 from banners import Banner
-from publishing import init, add_account, enqueue, approve, measure
+from publishing import init, add_account, enqueue, approve, measure, configure_auto, sync_ready
 
 ROOT=Path(__file__).resolve().parent
 
@@ -429,7 +429,7 @@ def create_app(root=ROOT):
                 LEFT JOIN measurements m ON m.publication_id=p.id ORDER BY p.id DESC LIMIT 200""").fetchall()
             ready=db.execute("SELECT id FROM clips WHERE status='done' ORDER BY id DESC LIMIT 200").fetchall()
             totals=db.execute("SELECT coalesce(sum(views),0),coalesce(sum(accepted_views),0),coalesce(sum(revenue_kopecks),0) FROM measurements").fetchone()
-            return render_template('publishing.html',accounts=accounts,drafts=drafts,ready=ready,totals=totals,csrf=session['csrf'])
+            return render_template('publishing.html',accounts=accounts,drafts=drafts,ready=ready,totals=totals,csrf=session['csrf'],profiles=__import__('production_profiles').load(root))
         finally: db.close()
 
     @app.post('/publishing/<action>')
@@ -439,6 +439,11 @@ def create_app(root=ROOT):
             if action=='account':
                 add_account(db,request.form['name'],request.form['platform'],request.form['destination'],
                     request.form['token_env'],request.form.get('topic',''),int(request.form.get('daily','2')))
+            elif action=='configure':
+                profile=request.form.get('profile','')
+                if profile and profile not in __import__('production_profiles').load(root): raise ValueError('Unknown profile')
+                configure_auto(db,int(request.form['id']),profile,request.form.get('caption',''),int(request.form.get('interval','3600')),request.form.get('auto')=='1')
+            elif action=='sync': sync_ready(db)
             elif action=='toggle':
                 with db: db.execute('UPDATE accounts SET enabled=1-enabled WHERE id=?',(int(request.form['id']),))
             elif action=='draft':
@@ -447,12 +452,12 @@ def create_app(root=ROOT):
                 if not approve(db,int(request.form['id'])): abort(409)
             elif action=='measure':
                 measure(db,int(request.form['id']),int(request.form['views']),int(request.form['accepted']),int(request.form['kopecks']))
-            elif action=='send':
+            elif action in ('send','run'):
                 with lock:
                     if job['process'] and job['process'].poll() is None: abort(409,'Job already running')
                     log=root/'dashboard-job.log'
                     with log.open('wb') as fp:
-                        proc=subprocess.Popen([sys.executable,'-u',str(ROOT/'publishing.py'),'--root',str(root),'send'],cwd=root,stdout=fp,stderr=subprocess.STDOUT)
+                        proc=subprocess.Popen([sys.executable,'-u',str(ROOT/'publishing.py'),'--root',str(root),action],cwd=root,stdout=fp,stderr=subprocess.STDOUT)
                     job.update(process=proc,action='send',log=log,started=time.time(),finished=None)
             else: abort(404)
         except (ValueError,KeyError,sqlite3.IntegrityError): abort(400,'Invalid publication settings')
