@@ -26,6 +26,7 @@ def create_app(root=ROOT):
     campaigns=root/'campaigns.json'
     assets=root/'assets'
     lock=threading.Lock()
+    publisher={'process':None}
     job={'process':None,'action':None,'log':None,'started':None,'finished':None}
 
     def read_json(path,default):
@@ -429,7 +430,7 @@ def create_app(root=ROOT):
                 LEFT JOIN measurements m ON m.publication_id=p.id ORDER BY p.id DESC LIMIT 200""").fetchall()
             ready=db.execute("SELECT id FROM clips WHERE status='done' ORDER BY id DESC LIMIT 200").fetchall()
             totals=db.execute("SELECT coalesce(sum(views),0),coalesce(sum(accepted_views),0),coalesce(sum(revenue_kopecks),0) FROM measurements").fetchone()
-            return render_template('publishing.html',accounts=accounts,drafts=drafts,ready=ready,totals=totals,csrf=session['csrf'],profiles=__import__('production_profiles').load(root))
+            return render_template('publishing.html',accounts=accounts,drafts=drafts,ready=ready,totals=totals,csrf=session['csrf'],publisher_running=publisher['process'] is not None and publisher['process'].poll() is None,profiles=__import__('production_profiles').load(root))
         finally: db.close()
 
     @app.post('/publishing/<action>')
@@ -452,13 +453,16 @@ def create_app(root=ROOT):
                 if not approve(db,int(request.form['id'])): abort(409)
             elif action=='measure':
                 measure(db,int(request.form['id']),int(request.form['views']),int(request.form['accepted']),int(request.form['kopecks']))
+            elif action=='stop':
+                (root/'publication.stop').touch()
             elif action in ('send','run'):
                 with lock:
-                    if job['process'] and job['process'].poll() is None: abort(409,'Job already running')
-                    log=root/'dashboard-job.log'
+                    if publisher['process'] and publisher['process'].poll() is None: abort(409,'Publisher already running')
+                    (root/'publication.stop').unlink(missing_ok=True)
+                    log=root/'publication-job.log'
                     with log.open('wb') as fp:
                         proc=subprocess.Popen([sys.executable,'-u',str(ROOT/'publishing.py'),'--root',str(root),action],cwd=root,stdout=fp,stderr=subprocess.STDOUT)
-                    job.update(process=proc,action='send',log=log,started=time.time(),finished=None)
+                    publisher['process']=proc
             else: abort(404)
         except (ValueError,KeyError,sqlite3.IntegrityError): abort(400,'Invalid publication settings')
         finally: db.close()
