@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS clips (
  UNIQUE(video_id,start,end)
 );
 CREATE TABLE IF NOT EXISTS telegram_channels (name TEXT PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 1, history INTEGER NOT NULL DEFAULT 100, min_views INTEGER NOT NULL DEFAULT 1000, cursor INTEGER, last_scan INTEGER, found INTEGER NOT NULL DEFAULT 0, error TEXT);
+CREATE TABLE IF NOT EXISTS fingerprints (clip_id INTEGER PRIMARY KEY REFERENCES clips(id), sha256 TEXT NOT NULL, duration REAL NOT NULL, payload TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS fingerprints_duration ON fingerprints(duration);
+CREATE INDEX IF NOT EXISTS fingerprints_sha ON fingerprints(sha256);
 CREATE INDEX IF NOT EXISTS clips_queue ON clips(status,score DESC);
 """
 
@@ -35,7 +38,7 @@ def connect(path):
     db.execute('BEGIN IMMEDIATE')
     try:
         cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
-        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0')]:
+        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT')]:
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         db.commit()
     except BaseException:
@@ -158,6 +161,20 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
                 a,b,method=0,probe(source),'whole'
                 if not 5<=b<=61: raise ValueError('Downloaded source outside short duration range')
             else: a,b,method=refine(source,row['start'],row['end'],peak)
+            if mode=='short':
+                from duplicates import fingerprint,find_duplicate,store
+                from source_media import stage
+                stage('duplicate_check','Comparing source fingerprints')
+                fp=fingerprint(source,b-a)
+                with db:
+                    store(db,row['id'],fp)
+                    match=find_duplicate(db,row['id'],fp)
+                    if match:
+                        original,kind,similarity=match
+                        db.execute("UPDATE clips SET status='duplicate',duplicate_of=?,duplicate_kind=?,updated=?,error=NULL WHERE id=?",(original,kind,int(time.time()),row['id']))
+                if match:
+                    stage('duplicate_check',f'#{row["id"]} matches #{original}: {kind}')
+                    return True
             selected=choose(campaigns,b-a) if campaigns else banner
             if mode=='short':
                 from short_media import render_short
