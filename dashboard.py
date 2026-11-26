@@ -111,6 +111,12 @@ def create_app(root=ROOT):
             clips=db.execute('SELECT c.*,v.title,v.url'+base+' ORDER BY c.id DESC LIMIT 100 OFFSET ?',(*params,(page-1)*100)).fetchall()
             stats=dict(db.execute('SELECT status,count(*) FROM clips GROUP BY status').fetchall())
             total=db.execute('SELECT count(*) FROM videos').fetchone()[0]
+            from production_runs import summary
+            from dispatcher import day_start
+            latest=db.execute('SELECT id FROM production_runs ORDER BY id DESC LIMIT 1').fetchone()
+            current_run=summary(db,latest['id']) if latest else None
+            recent=db.execute("SELECT c.id,c.cover,c.actual_start,c.actual_end,c.run_id,v.title FROM clips c JOIN videos v ON v.id=c.video_id WHERE c.status='done' AND c.output IS NOT NULL ORDER BY c.updated DESC,c.id DESC LIMIT 6").fetchall()
+            today=db.execute("SELECT count(*) FROM clips WHERE status='done' AND updated>=?",(day_start(),)).fetchone()[0]
         finally: db.close()
         with lock:
             proc=job['process']
@@ -124,6 +130,7 @@ def create_app(root=ROOT):
         return render_template('dashboard.html',sources=sources,telegram_channels=telegram_channels,videos=videos,clips=clips,stats=stats,total=total,
             running=running,result=result,log=log,action=job['action'],csrf=session['csrf'],
             clip_status=status,clip_query=query,clip_page=page,clip_count=clip_count,
+            run_configs=__import__('run_configs').load(root),current_run=current_run,recent=recent,today=today,
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
@@ -135,8 +142,15 @@ def create_app(root=ROOT):
         try:
             rows=db.execute('SELECT id FROM production_runs ORDER BY id DESC LIMIT 30').fetchall()
             runs=[summary(db,r['id']) for r in rows]
-            for run in runs: run.pop('snapshot',None)
-            return jsonify(configurations=load(root),runs=runs)
+            for run in runs:
+                run['name']=run['snapshot'].get('name','Производственная партия')
+                run.pop('snapshot',None)
+            from dispatcher import day_start
+            today=db.execute("SELECT count(*) FROM clips WHERE status='done' AND updated>=?",(day_start(),)).fetchone()[0]
+            stats=dict(db.execute('SELECT status,count(*) FROM clips GROUP BY status'))
+            recent=[dict(r) for r in db.execute("SELECT c.id,c.cover,c.actual_start,c.actual_end,c.run_id,v.title FROM clips c JOIN videos v ON v.id=c.video_id WHERE c.status='done' AND c.output IS NOT NULL ORDER BY c.updated DESC,c.id DESC LIMIT 6")]
+            active_id=job.get('run_id') if job['action']=='run-batch' and job['process'] and job['process'].poll() is None else None
+            return jsonify(configurations=load(root),runs=runs,today=today,stats=stats,recent=recent,active_id=active_id)
         finally: db.close()
 
     @app.post('/run-configs')
