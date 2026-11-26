@@ -16,7 +16,7 @@ def validate(data):
         raise ValueError('Video must fit canvas')
     for k in ('color','border_color'):
         if not re.fullmatch(r'#[0-9a-fA-F]{6}',out[k]): raise ValueError('Invalid color')
-    if out['background'] and not re.fullmatch(r'[a-f0-9]{24}\.jpg',out['background']): raise ValueError('Invalid background ID')
+    if out['background'] and not re.fullmatch(r'[a-f0-9]{24}\.(?:jpg|mp4|webm|mov|gif)',out['background']): raise ValueError('Invalid background ID')
     return out
 
 def load(root):
