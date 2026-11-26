@@ -21,6 +21,14 @@ def validate(data):
     from caption_style import validate as validate_style,from_form
     if 'caption_style' in data: out['caption_style']=validate_style(data['caption_style'])
     elif any(k.startswith('sub_') for k in data): out['caption_style']=from_form(data)
+    if 'ad_layout' in data or data.get('ad_override')=='1':
+        raw=data.get('ad_layout') or {k:data['ad_'+k] for k in ('width','height','x','y','opacity','start','end')}
+        ad={k:int(raw[k]) for k in ('width','height','x','y')}
+        ad.update(opacity=float(raw['opacity']),start=float(raw['start']),end=float(raw['end']) if raw.get('end') not in (None,'') else None)
+        import math
+        if not 1<=ad['width']<=1080 or not 1<=ad['height']<=1920 or abs(ad['x'])+ad['width']/2>540 or abs(ad['y'])+ad['height']/2>960: raise ValueError('Banner outside canvas')
+        if not math.isfinite(ad['opacity']) or not 0<=ad['opacity']<=1 or not math.isfinite(ad['start']) or ad['start']<0 or (ad['end'] is not None and (not math.isfinite(ad['end']) or ad['end']<=ad['start'])): raise ValueError('Invalid banner timing or opacity')
+        out['ad_layout']=ad
     return out
 
 def load(root):
