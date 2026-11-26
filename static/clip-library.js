@@ -16,6 +16,7 @@
   const op=e.submitter?.value;
   if(!boxes().some(b=>b.checked)){e.preventDefault();return;}
   if(op==='remontage'&&!confirm('Вернуть выбранные ролики в очередь? Старые файлы сохранятся.'))e.preventDefault();
+  if(op==='purge'&&!confirm('Окончательно удалить выбранные MP4 и обложки? Восстановить их будет невозможно.'))e.preventDefault();
   if(op==='archive'&&!confirm('Переместить выбранные записи в архив?'))e.preventDefault();
  });
  window.addEventListener('clip-library-refresh',update);
