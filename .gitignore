@@ -23,3 +23,6 @@ publication.lock
 *.session
 *.session-*
 telegram-reader.lock
+
+short-templates.json
+ad-brands.txt
