@@ -19,9 +19,9 @@ def render(source, start, end, output, banner=None):
         print(f'Framing fallback: {exc}',file=sys.stderr)
     cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-ss',str(start),'-i',str(source)]
     if banner:
-        from banners import Banner
+        from banners import Banner,media_input
         spec=banner if isinstance(banner,Banner) else Banner(Path(banner))
-        cmd += ['-i',str(spec.path)]
+        cmd += media_input(spec.path)
         vf+=spec.filter(end-start)
     else: vf+='[v]'
     cmd+=['-filter_complex_threads','1','-filter_complex',vf,'-map','[v]','-map','0:a?','-t',str(end-start),'-c:v','libx264','-threads','2','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart',str(output)]
