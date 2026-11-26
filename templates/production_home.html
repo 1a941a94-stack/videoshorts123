@@ -1,0 +1,44 @@
+<section id="production-runs" class="production-home">
+<div class="home-kpis">
+ <article><small>Готово сегодня</small><strong id="home-today">{{today}}</strong><a href="/?clip_status=done#clips">Открыть видео</a></article>
+ <article><small>В очереди</small><strong id="home-pending">{{stats.get('pending',0)}}</strong><a href="/?clip_status=pending#clips">Посмотреть задачи</a></article>
+ <article><small>Требуют внимания</small><strong id="home-attention">{{stats.get('failed',0)+stats.get('ad_review',0)}}</strong><a href="/?clip_status=failed#clips">Ошибки монтажа</a> · <a href="/?clip_status=ad_review#clips">Проверка рекламы</a></article>
+</div>
+<div class="home-work">
+ <div class="home-panel">
+  <div class="heading"><h3>Запуск производства</h3><a href="#run-configurations">Настроить</a></div>
+  {% if run_configs['items'] %}
+  <form method="post" action="/production/start" id="run-launch">
+   <input type="hidden" name="csrf" value="{{csrf}}">
+   <label>Конфигурация<select name="configuration" id="launch-config">{% for name,item in run_configs['items'].items() %}<option value="{{name}}" data-goal="{{item.goal}}" {% if name==run_configs.last %}selected{% endif %}>{{name}}</option>{% endfor %}</select></label>
+   <label>Цель — готовых роликов<input type="number" name="goal" id="launch-goal" min="1" max="1000" value="{{run_configs['items'].get(run_configs.last,{}).get('goal',10)}}" required></label>
+   <p class="muted" id="launch-description"></p>
+   <button class="primary-launch" {% if running %}disabled{% endif %}>▶ Запустить производство</button>
+  </form>
+  {% else %}
+   <h4>Создайте первую конфигурацию</h4><p class="muted">Выберите оформление и источники один раз. Следующие партии запускаются без повторной настройки.</p>
+   <a class="button primary-launch" href="#run-configurations">Создать конфигурацию</a>
+  {% endif %}
+ </div>
+ <div class="home-panel" id="batch-panel">
+  <div class="heading"><h3>Текущая партия</h3><span id="batch-status" role="status">Нет активной партии</span></div>
+  <p id="batch-name" class="muted"></p><div class="batch-numbers"><strong id="batch-done">0</strong><span id="batch-goal">/ 0</span></div>
+  <div class="batch-track"><div id="batch-fill"></div></div>
+  <p id="batch-detail" class="muted">Запустите производство для получения результатов.</p>
+  <div class="batch-actions">
+   <form id="batch-pause" method="post" hidden><input type="hidden" name="csrf" value="{{csrf}}"><button class="secondary">Пауза после ролика</button></form>
+   <form id="batch-resume" method="post" hidden><input type="hidden" name="csrf" value="{{csrf}}"><button>Продолжить</button></form>
+  </div>
+ </div>
+</div>
+<div class="home-panel"><div class="heading"><h3>Последние готовые видео</h3><a href="/?clip_status=done#clips">Все видео →</a></div>
+<div id="home-recent" class="home-gallery">{% for c in recent %}<article class="home-clip"><a href="/clips/{{c.id}}/video" target="_blank" rel="noopener">{% if c.cover %}<img src="/clips/{{c.id}}/cover" alt="" loading="lazy">{% else %}<span class="clip-placeholder">▶</span>{% endif %}</a><strong>{{c.title or ('Ролик #'~c.id)}}</strong><div><a href="/clips/{{c.id}}/video" target="_blank" rel="noopener">Смотреть</a><a href="/clips/{{c.id}}/video" download="clip_{{c.id}}.mp4">Скачать</a></div></article>{% else %}<p class="muted">Здесь появятся видео сразу после монтажа.</p>{% endfor %}</div>
+</div>
+</section>
+<section id="run-configurations"><div class="heading"><h3>Конфигурации производства</h3><a href="#production-runs">К производству</a></div>
+<div class="configuration-grid">{% for name,item in run_configs['items'].items() %}<article><h4>{{name}}</h4><p>{{'Готовые мемы' if item.mode=='short' else 'Подкасты'}} · {{item.goal}} видео</p><p class="muted">Шаблон: {{item.template or 'Стандартный'}} · Реклама: {{item.campaign or 'Нет'}}</p><button type="button" class="secondary config-edit" data-name="{{name}}" data-item='{{item|tojson}}'>Редактировать</button><form method="post" action="/run-configs" class="config-copy"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="name" value="{{name}}"><input name="target" placeholder="Название копии" required maxlength="80"><button name="operation" value="copy" class="secondary">Копировать</button></form><form method="post" action="/run-configs" class="config-delete"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="name" value="{{name}}"><button name="operation" value="delete" class="secondary">Удалить</button></form></article>{% endfor %}</div>
+<form id="config-form" method="post" action="/run-configs" class="config-form"><input type="hidden" name="csrf" value="{{csrf}}"><h4 id="config-heading">Новая конфигурация</h4>
+<label>Название<input name="name" required maxlength="80" placeholder="Например: Мемы — круг"></label>
+<div class="fields"><label>Тип контента<select name="mode"><option value="short">Готовые мемы</option><option value="long">Подкасты</option></select></label><label>Цель партии<input type="number" name="goal" min="1" max="1000" value="10"></label><label>Шаблон<select name="template"><option value="">Стандартный (заполнение)</option>{% for name in short_profiles %}<option value="{{name}}">{{name}}</option>{% endfor %}</select></label><label>Кампания<select name="campaign"><option value="">Без рекламы</option>{% for c in campaigns if c.get('enabled',true) %}<option value="{{c.name}}">{{c.name}}</option>{% endfor %}</select></label></div>
+<label class="check-line"><input type="checkbox" name="auto_search" value="1" checked> Автоматически искать видео при пустой очереди</label><label class="check-line"><input type="checkbox" name="captions" value="1"> Субтитры</label><p class="muted">Проверка дублей, рекламы и качества выполняется автоматически для коротких видео.</p>
+<button name="operation" value="save">Сохранить конфигурацию</button> <button type="button" id="config-reset" class="secondary">Новая конфигурация</button></form></section>
