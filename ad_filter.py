@@ -19,7 +19,7 @@ def classify(text,brands=()):
     if DOMAIN.search(text): return 'domain'
     return None
 
-def screen(source,duration,brands=(),speech=True,reference_dir=None):
+def screen(source,duration,brands=(),speech=True,reference_dir=None,transcript=None):
     import cv2
     from source_media import stage
     exe=os.getenv('CLIP_TESSERACT') or shutil.which('tesseract')
@@ -71,6 +71,7 @@ def screen(source,duration,brands=(),speech=True,reference_dir=None):
                 if probe.stdout.strip():
                     stage('ad_check','Speech advertising screening')
                     words=transcribe(source,0,duration,Path(folder)/'audio.wav')
+                    if transcript is not None: transcript.extend(words)
                     hit=classify(' '.join(w for _,_,w in words),brands)
                     if hit=='promo_text': return 'rejected','Advertising phrase in speech'
                     if hit: findings.add(hit)
