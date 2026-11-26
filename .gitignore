@@ -31,3 +31,6 @@ production-profiles.json
 
 instagram-sessions/
 factory.stop
+
+publication.stop
+publication-job.log
