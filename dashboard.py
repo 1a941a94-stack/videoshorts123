@@ -195,6 +195,7 @@ def create_app(root=ROOT):
                     cmd+=['--campaigns',str(campaigns)]
             env=os.environ.copy()
             env['CLIP_CAPTIONS']='1' if request.form.get('captions')=='1' else '0'
+            env['CLIP_SMART_SPEECH']='1' if request.form.get('smart_speech')=='1' else '0'
             log=root/'dashboard-job.log'
             with log.open('wb') as fp:
                 proc=subprocess.Popen(cmd,cwd=root,stdout=fp,stderr=subprocess.STDOUT,env=env)
