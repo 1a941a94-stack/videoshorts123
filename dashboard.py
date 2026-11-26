@@ -137,6 +137,16 @@ def create_app(root=ROOT):
         with lock: save_json(config,values)
         return redirect(url_for('index')+'#settings')
 
+    @app.post('/shorts/<int:cid>/authorize')
+    def authorize_short(cid):
+        from pipeline import approve_short
+        if request.form.get('rights')!='1': abort(400,'Confirm permission for commercial reuse')
+        db=connect(dbpath)
+        try:
+            if not approve_short(db,cid): abort(404)
+        finally: db.close()
+        return redirect(url_for('index')+'#clips')
+
     @app.post('/short-background')
     def short_background():
         upload=request.files.get('image')
