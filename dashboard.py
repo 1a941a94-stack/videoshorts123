@@ -108,7 +108,7 @@ def create_app(root=ROOT):
                     log=fp.read().decode('utf-8','replace')
         return render_template('dashboard.html',sources=sources,telegram_channels=telegram_channels,videos=videos,clips=clips,stats=stats,total=total,
             running=running,result=result,log=log,action=job['action'],csrf=session['csrf'],
-            ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
+            short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*.jpg')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
     @app.post('/telegram/channels')
     def telegram_channels_add():
@@ -201,6 +201,40 @@ def create_app(root=ROOT):
             if job['process'] and job['process'].poll() is None: abort(409)
             (assets/'ad-references'/(name+'.png')).unlink(missing_ok=True)
         return redirect(url_for('index')+'#ad-references')
+
+    @app.post('/short-profiles')
+    def save_short_profile():
+        from short_templates import save
+        with lock:
+            try: save(root,request.form.get('name',''),request.form)
+            except ValueError as exc: abort(400,str(exc))
+        return redirect(url_for('index')+'#short-template')
+
+    @app.post('/short-backgrounds')
+    def add_short_background():
+        import cv2
+        import numpy as np
+        upload=request.files.get('image')
+        if not upload: abort(400)
+        image=cv2.imdecode(np.frombuffer(upload.read(),dtype=np.uint8),cv2.IMREAD_COLOR)
+        if image is None or max(image.shape[:2])>8000: abort(400)
+        folder=assets/'backgrounds'
+        with lock:
+            folder.mkdir(parents=True,exist_ok=True)
+            if len(list(folder.glob('*.jpg')))>=100: abort(400,'Background limit')
+            path=folder/(secrets.token_hex(12)+'.jpg')
+            ok,data=cv2.imencode('.jpg',image)
+            if not ok: abort(400)
+            path.write_bytes(data.tobytes())
+        return redirect(url_for('index')+'#short-template')
+
+    @app.get('/short-backgrounds/<name>')
+    def view_short_background(name):
+        import re
+        if not re.fullmatch(r'[a-f0-9]{24}\.jpg',name): abort(404)
+        path=assets/'backgrounds'/name
+        if not path.is_file(): abort(404)
+        return send_file(path,mimetype='image/jpeg')
 
     @app.post('/short-background')
     def short_background():
@@ -310,6 +344,19 @@ def create_app(root=ROOT):
             background=assets/'short-background.jpg'
             if background.is_file(): env['CLIP_SHORT_BACKGROUND']=str(background)
             else: env.pop('CLIP_SHORT_BACKGROUND',None)
+            env.pop('CLIP_SHORT_TEMPLATE',None)
+            if action=='work' and request.form.get('profile'):
+                from short_templates import load,validate
+                profiles=load(root)
+                name=request.form['profile']
+                if name not in profiles: abort(400,'Unknown template')
+                spec=validate(profiles[name])
+                env['CLIP_SHORT_TEMPLATE']=json.dumps(spec)
+                if spec['background']:
+                    path=assets/'backgrounds'/spec['background']
+                    if not path.is_file(): abort(400,'Background missing')
+                    env['CLIP_SHORT_BACKGROUND']=str(path)
+                else: env.pop('CLIP_SHORT_BACKGROUND',None)
             log=root/'dashboard-job.log'
             with log.open('wb') as fp:
                 proc=subprocess.Popen(cmd,cwd=root,stdout=fp,stderr=subprocess.STDOUT,env=env)
