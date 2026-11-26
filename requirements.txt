@@ -4,3 +4,4 @@ Flask>=3.1,<4
 filelock>=3.16,<4
 psutil>=6,<8
 requests>=2.32,<3
+Pillow>=10,<13
