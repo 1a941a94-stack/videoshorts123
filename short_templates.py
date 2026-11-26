@@ -3,12 +3,12 @@ import json
 import re
 from pathlib import Path
 
-DEFAULT=dict(layout='circle',size=960,x=0,y=80,color='#172536',background='',border=0,border_color='#ffffff',fit='cover',auto_crop=True)
+DEFAULT=dict(layout='circle',size=960,x=0,y=80,color='#172536',background='',border=0,border_color='#ffffff',fit='cover',auto_crop=True,source_zoom=100,source_pan_x=0,source_pan_y=0)
 
 def validate(data):
     out={**DEFAULT,**{k:data[k] for k in DEFAULT if k in data}}
     if out['layout'] not in ('circle','rectangle') or out['fit'] not in ('contain','cover'): raise ValueError('Invalid layout')
-    for k,lo,hi in [('size',320,1080),('x',-380,380),('y',-650,650),('border',0,24)]:
+    for k,lo,hi in [('size',320,1080),('x',-380,380),('y',-650,650),('border',0,24),('source_zoom',100,300),('source_pan_x',-100,100),('source_pan_y',-100,100)]:
         out[k]=int(out[k])
         if not lo<=out[k]<=hi: raise ValueError(f'Invalid {k}')
     out['size']-=out['size']%2
