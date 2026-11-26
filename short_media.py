@@ -15,17 +15,17 @@ def candidate(info,min_views=10000):
     score=min(1,math.log10(max(1,views))/7)
     return [dict(start=0,end=duration,score=score,rank=score,peak=None)]
 
-def render_short(source,duration,output,banner=None):
+def render_short(source,duration,output,banner=None,*,template=None,background_path=None,captions=None,normalize=None):
     source=Path(source).resolve()
     output=Path(output).resolve()
     import json
     from short_templates import validate
-    spec=validate(json.loads(os.getenv('CLIP_SHORT_TEMPLATE','{}')) or {'layout':os.getenv('CLIP_SHORT_LAYOUT','circle'),'size':960 if os.getenv('CLIP_SHORT_LAYOUT','circle')=='circle' else 1000})
+    spec=validate(template if template is not None else json.loads(os.getenv('CLIP_SHORT_TEMPLATE','{}')) or {'layout':os.getenv('CLIP_SHORT_LAYOUT','circle'),'size':960 if os.getenv('CLIP_SHORT_LAYOUT','circle')=='circle' else 1000})
     layout=spec['layout']
     size=spec['size']; border=spec['border']; half=size/2
     fit=spec['fit']; color=spec['color'].replace('#','0x'); border_color=spec['border_color'].replace('#','0x')
     if layout not in ('circle','rectangle'): raise ValueError('Invalid short layout')
-    background=os.getenv('CLIP_SHORT_BACKGROUND','')
+    background=os.getenv('CLIP_SHORT_BACKGROUND','') if background_path is None else background_path
     cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',str(source)]
     # The source is contained or cropped into a square; the mask is applied last.
     if fit=='cover':
@@ -73,13 +73,13 @@ def render_short(source,duration,output,banner=None):
                 image.resize((n,n),Image.Resampling.LANCZOS).save(Path(folder)/path)
             disk(size,255,'L','circle-mask.png')
             if border: disk(outer,tuple(bytes.fromhex(border_color[2:]))+(255,),'RGBA','circle-ring.png')
-        if os.getenv('CLIP_CAPTIONS','0')=='1':
+        if captions if captions is not None else os.getenv('CLIP_CAPTIONS','0')=='1':
             from captions import prepare
             stage('captions')
             prepare(source,0,duration,folder)
             vf=vf.removesuffix('[v]')+'[pre];[pre]ass=captions.ass[v]'
         stage('render',layout)
-        audio=['-af','loudnorm=I=-16:TP=-1.5:LRA=11','-ar','48000','-b:a','160k'] if os.getenv('CLIP_NORMALIZE_AUDIO','1')=='1' else []
+        audio=['-af','loudnorm=I=-16:TP=-1.5:LRA=11','-ar','48000','-b:a','160k'] if (normalize if normalize is not None else os.getenv('CLIP_NORMALIZE_AUDIO','1')=='1') else []
         cmd+=['-filter_complex_threads','1','-filter_complex',vf,'-map','[v]','-map','0:a?',
               '-t',str(duration),'-c:v','libx264','-threads','2','-preset','veryfast','-crf','22',
               '-pix_fmt','yuv420p','-c:a','aac',*audio,'-movflags','+faststart',str(output)]
