@@ -39,3 +39,6 @@ youtube-sessions/
 client_secrets*.json
 
 local-sources/
+
+benchmark-result.json
+performance.json
