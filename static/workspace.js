@@ -9,8 +9,9 @@
   design:{title:'Шаблоны',ids:['saved-templates','short-template']},
   media:{title:'Медиатека',ids:['media-library']},
   profiles:{title:'Профили монтажа',ids:['production-profiles']},
-  ads:{title:'Рекламные кампании',ids:['campaigns','ad-references']},
-  system:{title:'Диагностика и настройки',ids:['performance','settings']}
+  ads:{title:'Рекламные кампании',ids:['campaigns']},
+  storage:{title:'Хранилище',ids:['storage']},
+  system:{title:'Диагностика и настройки',ids:['diagnostics','performance','settings','ad-references']}
  };
  const links=[...document.querySelectorAll('nav [data-view]')];
  const sections=[...document.querySelectorAll('main > section')];
