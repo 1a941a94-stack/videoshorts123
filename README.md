@@ -46,3 +46,7 @@ Optional settings: CLIP_LANGUAGE (e.g. ru), CLIP_COMPUTE, CLIP_FONT_SIZE (defaul
 ## Local dashboard
 
 Install requirements and run `python dashboard.py`, then open http://127.0.0.1:8080/. The dashboard supports source management, search settings, scan and render jobs, retry, logs, video previews, and static banner campaign creation. It binds only to localhost; do not expose it to the public Internet. Do not run separate CLI workers simultaneously during initial testing. For optional captions install requirements-captions.txt. The UI is not yet integration-tested.
+
+## Autonomous production
+
+Run `python supervisor.py --daily 30 --workers 1 --scan-interval 3600 --min-free-gb 5 --max-cpu 85`. Optionally pass `--config settings.json` and `--campaigns campaigns.json`. Set CLIP_CAPTIONS=1 before starting to enable installed local captions. Use `--once` for one scan and one batch. Daily accounting uses UTC and counts completed clips. The CPU/disk checks are admission checks, not hard resource quotas. Do not start another producer against the same database; the CLI and supervisor share a file lock. A restarted supervisor resets interrupted jobs, with a maximum of three attempts. Failed jobs are retried after 15 minutes. Stop with Ctrl+C. External process supervision (systemd or equivalent) is needed for OS reboot autostart. No live end-to-end validation yet.
