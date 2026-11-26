@@ -20,7 +20,7 @@ def encode(command,tail,output,cwd,mode=None,report=print):
         try:
             subprocess.run([*command,*QSV,'-pix_fmt','nv12',*tail,str(output)],check=True,cwd=cwd,timeout=600)
             return 'qsv'
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError,subprocess.TimeoutExpired):
             output.unlink(missing_ok=True)
             report('Quick Sync failed; falling back to CPU')
     subprocess.run([*command,*CPU,'-pix_fmt','yuv420p',*tail,str(output)],check=True,cwd=cwd,timeout=600)
