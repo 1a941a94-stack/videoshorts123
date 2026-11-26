@@ -42,3 +42,7 @@ python pipeline.py work --limit 10
 ```
 
 Optional settings: CLIP_LANGUAGE (e.g. ru), CLIP_COMPUTE, CLIP_FONT_SIZE (default 64), CLIP_CAPTION_MARGIN (480 pixels), CLIP_HIGHLIGHT (ASS BGR hex, default 00D5FF). For CUDA use a compatible CTranslate2/CUDA installation. Caption rendering is not yet validated on real speech. Captions are disabled by default.
+
+## Local dashboard
+
+Install requirements and run `python dashboard.py`, then open http://127.0.0.1:8080/. The dashboard supports source management, search settings, scan and render jobs, retry, logs, video previews, and static banner campaign creation. It binds only to localhost; do not expose it to the public Internet. Do not run separate CLI workers simultaneously during initial testing. For optional captions install requirements-captions.txt. The UI is not yet integration-tested.
