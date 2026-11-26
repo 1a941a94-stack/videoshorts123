@@ -158,8 +158,6 @@ def process(db, out, banner=None, campaigns=None, mode='long', *, claimed=None):
     cache_root=out
     if profile: out=out/'profiles'/profile
     out.mkdir(parents=True,exist_ok=True)
-    with db:
-        db.execute("UPDATE clips SET production_profile=? WHERE id=?",(profile or None,row['id']))
     raw = out / f"raw_{row['id']}.mp4"
     # Keep prior successful versions untouched until the new output passes QC.
     version=f"_v{time.time_ns()}" if row['output'] else ''
@@ -248,7 +246,7 @@ def process(db, out, banner=None, campaigns=None, mode='long', *, claimed=None):
         with db:
             from clip_versions import remember
             remember(db,row)
-            db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=?,actual_start=?,actual_end=?,boundary_method=?,cover=?,cover_error=?,quality_result=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,a,b,method,cover,cover_error,quality,row['id']))
+            db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=?,actual_start=?,actual_end=?,boundary_method=?,cover=?,cover_error=?,quality_result=?,production_profile=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,a,b,method,cover,cover_error,quality,profile or None,row['id']))
     except Exception as exc:
         print('CF_STAGE '+json.dumps({'stage':'error','detail':f'#{row["id"]}: {str(exc)[:300]}'},ensure_ascii=True),flush=True)
         with db:
@@ -340,11 +338,11 @@ def main():
             from dispatcher import run
             root=Path(args.db).resolve().parent
             with db:
-                db.execute("UPDATE clips SET status=CASE WHEN attempts<3 THEN 'pending' ELSE 'failed' END WHERE status='running'")
+                db.execute("UPDATE clips SET status=CASE WHEN attempts<3 THEN 'pending' ELSE 'failed' END WHERE status='running' AND run_id IS NULL")
             run(db,root,args.out,args.limit,args.continuous,args.replenish)
         elif args.action=='work':
             with db:
-                db.execute("UPDATE clips SET status=CASE WHEN attempts<3 THEN 'pending' ELSE 'failed' END WHERE status='running'")
+                db.execute("UPDATE clips SET status=CASE WHEN attempts<3 THEN 'pending' ELSE 'failed' END WHERE status='running' AND run_id IS NULL")
             before_failed=db.execute("SELECT count(*) FROM clips WHERE status='failed'").fetchone()[0]
             total=min(args.limit,db.execute("SELECT count(*) FROM clips WHERE status='pending' AND mode=?",(args.mode,)).fetchone()[0])
             print(f'CF_PROGRESS 0 {total}',flush=True)
