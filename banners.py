@@ -43,13 +43,14 @@ class Banner:
                 f'format=rgba,colorchannelmixer=aa={self.opacity}[ad];'
                 f"[base][ad]overlay=(W-w)/2:{y}:enable='gte(t,{self.start})*lt(t,{end})'[v]")
 
-def choose(config, duration, rng=None):
+def choose(config, duration, rng=None, campaign=None):
     config=Path(config).resolve()
     data=json.loads(config.read_text(encoding='utf-8'))
     active=[]
     weights=[]
     now=datetime.now(timezone.utc)
     for row in data['campaigns']:
+        if campaign is not None and row.get('name')!=campaign: continue
         if not row.get('enabled',True): continue
         for field in ('active_from','active_until'):
             if row.get(field):
