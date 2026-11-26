@@ -24,10 +24,13 @@ def save(root,name,form,templates,campaigns):
     cover_title=form.get('cover_title','').strip()
     cover_color=form.get('cover_color','#172536')
     if cover_mode not in ('auto','first','middle','branded','off') or len(cover_title)>80 or not re.fullmatch(r'#[0-9a-fA-F]{6}',cover_color): raise ValueError('Invalid cover settings')
+    daily_limit=int(form.get('daily_limit',10))
+    priority=int(form.get('priority',1))
+    if not 1<=daily_limit<=1000 or not 1<=priority<=10: raise ValueError('Invalid production quota')
     profiles=load(root)
     if len(profiles)>=100 and name not in profiles: raise ValueError('Profile limit')
     profiles[name]=dict(platform=platform,handle=handle,template=template,campaign=campaign,
-        captions=form.get('captions')=='1',font_size=font_size,caption_margin=margin,cover_mode=cover_mode,cover_title=cover_title,cover_color=cover_color)
+        captions=form.get('captions')=='1',font_size=font_size,caption_margin=margin,cover_mode=cover_mode,cover_title=cover_title,cover_color=cover_color,daily_limit=daily_limit,priority=priority,enabled=form.get('enabled','1')=='1')
     path=Path(root)/'production-profiles.json'
     temp=path.with_suffix('.tmp')
     temp.write_text(json.dumps(profiles,ensure_ascii=False,indent=2),encoding='utf-8')
