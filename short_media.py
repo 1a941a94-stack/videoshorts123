@@ -15,7 +15,7 @@ def candidate(info,min_views=10000):
     score=min(1,math.log10(max(1,views))/7)
     return [dict(start=0,end=duration,score=score,rank=score,peak=None)]
 
-def render_short(source,duration,output,banner=None,*,template=None,background_path=None,captions=None,normalize=None):
+def render_short(source,duration,output,banner=None,*,template=None,background_path=None,captions=None,normalize=None,caption_style=None):
     source=Path(source).resolve()
     output=Path(output).resolve()
     import json
@@ -76,7 +76,7 @@ def render_short(source,duration,output,banner=None,*,template=None,background_p
         if captions if captions is not None else os.getenv('CLIP_CAPTIONS','0')=='1':
             from captions import prepare
             stage('captions')
-            prepare(source,0,duration,folder)
+            prepare(source,0,duration,folder,style=caption_style)
             vf=vf.removesuffix('[v]')+'[pre];[pre]ass=captions.ass[v]'
         stage('render',layout)
         audio=['-af','loudnorm=I=-16:TP=-1.5:LRA=11','-ar','48000','-b:a','160k'] if (normalize if normalize is not None else os.getenv('CLIP_NORMALIZE_AUDIO','1')=='1') else []
