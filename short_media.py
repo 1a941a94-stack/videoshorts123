@@ -21,15 +21,23 @@ def render_short(source,duration,output,banner=None,*,template=None,background_p
     import json
     from short_templates import validate
     spec=validate(template if template is not None else json.loads(os.getenv('CLIP_SHORT_TEMPLATE','{}')) or {'layout':os.getenv('CLIP_SHORT_LAYOUT','circle'),'size':960 if os.getenv('CLIP_SHORT_LAYOUT','circle')=='circle' else 1000})
+    spec_style=spec.get('caption_style')
     layout=spec['layout']
     size=spec['size']; border=spec['border']; half=size/2
     fit=spec['fit']; color=spec['color'].replace('#','0x'); border_color=spec['border_color'].replace('#','0x')
     if layout not in ('circle','rectangle'): raise ValueError('Invalid short layout')
     background=os.getenv('CLIP_SHORT_BACKGROUND','') if background_path is None else background_path
     cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',str(source)]
+    prefix='[0:v]'
+    if fit=='cover' and spec['auto_crop']:
+        from auto_crop import detect
+        crop=detect(source,duration)
+        if crop:
+            prefix+='crop='+':'.join(map(str,crop))+','
+            stage('framing','Stable black margins removed')
     # The source is contained or cropped into a square; the mask is applied last.
     if fit=='cover':
-        vf=f"[0:v]scale={size}:{size}:force_original_aspect_ratio=increase,crop={size}:{size},setsar=1"
+        vf=f"{prefix}scale={size}:{size}:force_original_aspect_ratio=increase,crop={size}:{size},setsar=1"
     else:
         vf=f"[0:v]scale={size}:{size}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={size}:{size}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
     outer=size+2*border
@@ -76,6 +84,8 @@ def render_short(source,duration,output,banner=None,*,template=None,background_p
         if captions if captions is not None else os.getenv('CLIP_CAPTIONS','0')=='1':
             from captions import prepare
             stage('captions')
+            if caption_style is None:
+                caption_style=spec_style
             prepare(source,0,duration,folder,style=caption_style,words=words)
             vf=vf.removesuffix('[v]')+'[pre];[pre]ass=captions.ass[v]'
         stage('render',layout)
