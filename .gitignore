@@ -18,3 +18,8 @@ dashboard-job.log
 *.production.lock
 
 publication.lock
+
+# Local Telegram authorization; never commit sessions
+*.session
+*.session-*
+telegram-reader.lock
