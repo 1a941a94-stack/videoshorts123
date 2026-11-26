@@ -124,11 +124,18 @@ def approve_short(db,cid):
     with db:
         return db.execute("UPDATE clips SET authorized=1 WHERE id=? AND mode='short' AND status='pending'",(cid,)).rowcount
 
-def claim(db,mode='long',run_id=None):
+def claim(db,mode='long',run_id=None,only_ids=None):
     db.execute("BEGIN IMMEDIATE")
     try:
+        restriction=''; params=[mode,run_id,run_id]
+        if only_ids is not None:
+            if not only_ids:
+                db.commit()
+                return None
+            restriction=' AND c.id IN ('+','.join('?' for _ in only_ids)+')'
+            params.extend(only_ids)
         row = db.execute("""SELECT c.*,v.url FROM clips c JOIN videos v ON v.id=c.video_id
-        WHERE c.status='pending' AND c.mode=? AND (? IS NULL OR c.run_id IS NULL OR c.run_id=?) ORDER BY c.priority DESC,coalesce(c.rank,c.score) DESC,c.id LIMIT 1""",(mode,run_id,run_id)).fetchone()
+        WHERE c.status='pending' AND c.mode=? AND (? IS NULL OR c.run_id IS NULL OR c.run_id=?)"""+restriction+" ORDER BY c.priority DESC,coalesce(c.rank,c.score) DESC,c.id LIMIT 1",params).fetchone()
         if row:
             db.execute("UPDATE clips SET status='running',attempts=attempts+1,updated=? WHERE id=?", (int(time.time()),row['id']))
         db.commit()
