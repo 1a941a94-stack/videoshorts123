@@ -26,7 +26,7 @@ def login(root):
         try: c.start()
         finally: c.disconnect()
 
-def scan_channel(db,root,channel,limit=100,min_views=1000,cursor=None):
+def scan_channel(db,root,channel,limit=100,min_views=0,cursor=None):
     from short_media import candidate
     channel=channel_name(channel)
     if not 1<=limit<=1000: raise ValueError('Invalid history limit')
@@ -56,13 +56,13 @@ def scan_channel(db,root,channel,limit=100,min_views=1000,cursor=None):
                     db.execute("INSERT OR IGNORE INTO videos(id,url,title,views,duration,status,checked) VALUES(?,?,?,?,?,'ready',?)",
                         (vid,url,(msg.message or f'@{channel} #{msg.id}')[:200],views,duration,now))
                     row=db.execute("INSERT OR IGNORE INTO clips(video_id,start,end,score,rank,updated,mode) VALUES(?,0,?,?,?,?,'short')",
-                        (vid,duration,clips[0]['score'],clips[0]['rank'],now))
+                        (vid,duration,clips[0]['score'],0.5,now))
                     count+=row.rowcount
             stage('telegram_scan',f'New candidates: {count}')
             return count,newest
         finally: c.disconnect()
 
-def add_channels(db,values,limit=100,min_views=1000):
+def add_channels(db,values,limit=100,min_views=0):
     if not 1<=limit<=1000 or min_views<0: raise ValueError('Invalid settings')
     names=list(dict.fromkeys(channel_name(v) for v in values if v.strip()))
     if not names or len(names)>200: raise ValueError('Provide 1–200 channels')
