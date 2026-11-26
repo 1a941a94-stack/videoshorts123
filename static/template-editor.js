@@ -5,7 +5,15 @@ const v=k=>f.elements[k].value;
 function draw(){
  const size=Number(v('size')),x=Number(v('x')),y=Number(v('y')),b=Number(v('border'));
  p.style.backgroundColor=v('color');
- p.style.backgroundImage=v('background')?'url("/short-backgrounds/'+encodeURIComponent(v('background'))+'")':'none';
+ const bg=v('background'), video=document.getElementById('preview-background-video');
+ const motion=/\.(mp4|webm|mov)$/i.test(bg);
+ const url=bg?'/short-backgrounds/'+encodeURIComponent(bg):'';
+ p.style.backgroundImage=bg&&!motion?'url("'+url+'")':'none';
+ if(video){
+   video.hidden=!motion;
+   if(motion){if(video.getAttribute('src')!==url){video.src=url;video.play().catch(()=>{});}}
+   else if(video.hasAttribute('src')){video.pause();video.removeAttribute('src');video.load();}
+ }
  m.style.width=(size+2*b)/1080*100+'%';
  m.style.left=(50+x/1080*100)+'%';
  m.style.top=(50+y/1920*100)+'%';
