@@ -30,3 +30,23 @@ def media(db,root,cid,vid):
     p=(Path(root)/row['output']).resolve()
     if p.is_relative_to((Path(root)/'output').resolve()) and p.is_file() and p.suffix=='.mp4': return p
     return None
+
+def restore(db,root,cid,vid):
+    current=db.execute('SELECT * FROM clips WHERE id=?',(cid,)).fetchone()
+    old=db.execute('SELECT * FROM clip_versions WHERE clip_id=? AND id=?',(cid,vid)).fetchone()
+    if not current or not old or current['status'] not in ('done','failed','ad_review','ad_rejected','duplicate'):
+        raise ValueError('Версия недоступна для восстановления')
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publications'").fetchone():
+        if db.execute('SELECT 1 FROM publications WHERE clip_id=? LIMIT 1',(cid,)).fetchone():
+            raise ValueError('Есть записи публикации')
+    if media(db,root,cid,vid) is None: raise ValueError('Файл версии отсутствует')
+    cover=old['cover']
+    if cover:
+        p=(Path(root)/cover).resolve()
+        if not p.is_relative_to((Path(root)/'output').resolve()) or not p.is_file() or p.suffix!='.jpg': cover=None
+    with db:
+        remember(db,current)
+        db.execute("""UPDATE clips SET output=?,cover=?,campaign=?,quality_result=?,actual_start=?,actual_end=?,
+            status='done',error=NULL,cover_error=NULL,task_snapshot=NULL,updated=? WHERE id=?""",
+            (old['output'],cover,old['campaign'],old['quality_result'],old['actual_start'],old['actual_end'],int(time.time()),cid))
+        db.execute('DELETE FROM clip_versions WHERE id=?',(vid,))
