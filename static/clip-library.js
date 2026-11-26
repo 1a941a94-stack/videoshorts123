@@ -34,7 +34,7 @@
     const field=edit.elements[name];field.replaceChildren(new Option(empty,''));
     for(const item of items)field.add(new Option(item,item));
    }
-   for(const [key,value] of Object.entries(data.template))if(edit.elements[key])edit.elements[key].value=value;
+   for(const [key,value] of Object.entries(data.template))if(edit.elements[key])edit.elements[key].value=typeof value==='boolean'?Number(value):value;
    edit.elements.campaign.value=data.campaign;
    if(edit.elements.campaign.selectedIndex<0)edit.elements.campaign.selectedIndex=0;
    edit.elements.captions.checked=data.captions;
