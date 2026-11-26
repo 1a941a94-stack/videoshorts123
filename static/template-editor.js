@@ -27,7 +27,8 @@ window.addEventListener('workspace-change',draw);
 document.querySelectorAll('.edit-profile').forEach(btn=>btn.addEventListener('click',()=>{
  const data=JSON.parse(btn.dataset.spec);
  f.elements.name.value=btn.dataset.name;
- for(const [k,val] of Object.entries(data))if(f.elements[k])f.elements[k].value=val;
+ for(const [k,val] of Object.entries(data))if(f.elements[k])f.elements[k].value=typeof val==='boolean'?Number(val):val;
+ for(const [k,val] of Object.entries(data.caption_style||{}))if(f.elements['sub_'+k])f.elements['sub_'+k].value=typeof val==='boolean'?Number(val):val;
  draw(); f.scrollIntoView({behavior:'smooth',block:'center'});
 }));
 draw();
