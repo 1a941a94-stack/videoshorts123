@@ -6,6 +6,13 @@ import math
 import random
 from datetime import datetime, timezone
 
+MOTION_EXT={'.mp4','.webm','.mov','.gif'}
+IMAGE_EXT={'.png','.jpg','.jpeg','.webp'}
+
+def media_input(path):
+    path=Path(path).resolve()
+    return (['-stream_loop','-1','-i',str(path)] if path.suffix.lower() in MOTION_EXT else ['-i',str(path)])
+
 @dataclass(frozen=True)
 class Banner:
     path: Path
@@ -20,7 +27,7 @@ class Banner:
 
     def __post_init__(self):
         if not self.path.is_file(): raise ValueError(f'Banner not found: {self.path}')
-        if self.path.suffix.lower() not in ('.png','.jpg','.jpeg','.webp'): raise ValueError('Use a static image')
+        if self.path.suffix.lower() not in IMAGE_EXT | MOTION_EXT: raise ValueError('Unsupported banner media')
         if not 1<=self.width<=1080 or not 1<=self.height<=1920: raise ValueError('Invalid dimensions')
         if self.position not in ('top','bottom','center'): raise ValueError('Invalid position')
         if not 0<=self.margin<=1920-self.height: raise ValueError('Invalid margin')
@@ -32,7 +39,7 @@ class Banner:
         end=min(duration,self.end if self.end is not None else duration)
         if end<=self.start: raise ValueError('Banner interval does not intersect clip')
         y={'top':str(self.margin),'bottom':f'H-h-{self.margin}','center':'(H-h)/2'}[self.position]
-        return (f'[base];[1:v]scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,'
+        return (f'[base];[1:v]setpts=PTS-STARTPTS,scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,'
                 f'format=rgba,colorchannelmixer=aa={self.opacity}[ad];'
                 f"[base][ad]overlay=(W-w)/2:{y}:enable='gte(t,{self.start})*lt(t,{end})'[v]")
 
