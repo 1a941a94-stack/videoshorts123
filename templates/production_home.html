@@ -16,8 +16,7 @@
    <button class="primary-launch" {% if running %}disabled{% endif %}>▶ Запустить производство</button>
   </form>
   {% else %}
-   <h4>Создайте первую конфигурацию</h4><p class="muted">Выберите оформление и источники один раз. Следующие партии запускаются без повторной настройки.</p>
-   <a class="button primary-launch" href="#run-configurations">Создать конфигурацию</a>
+   <h4>Первый запуск</h4><p class="muted">Подготовьте производство один раз.</p><ol class="setup-steps"><li><a href="#performance">Проверить FFmpeg, OCR и свободное место</a></li><li><a href="#local-library">Добавить разрешённые исходники или источники</a></li><li><a href="#short-template">Настроить оформление (необязательно)</a></li><li><a href="#campaigns">Добавить рекламу (необязательно)</a></li></ol><form method="post" action="/run-configs"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="name" value="Стандартное производство"><input type="hidden" name="mode" value="short"><input type="hidden" name="goal" value="10"><button name="operation" value="save" class="primary-launch">Создать стандартную конфигурацию</button></form><a href="#run-configurations">Настроить вручную</a>
   {% endif %}
  </div>
  <div class="home-panel" id="batch-panel">
