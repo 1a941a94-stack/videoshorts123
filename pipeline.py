@@ -43,6 +43,8 @@ def connect(path):
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         from production_runs import init
         init(db)
+        from clip_versions import init as init_versions
+        init_versions(db)
         db.commit()
     except BaseException:
         db.rollback()
@@ -244,6 +246,8 @@ def process(db, out, banner=None, campaigns=None, mode='long', *, claimed=None):
             except Exception as exc:
                 cover_error=str(exc)[:500]
         with db:
+            from clip_versions import remember
+            remember(db,row)
             db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=?,actual_start=?,actual_end=?,boundary_method=?,cover=?,cover_error=?,quality_result=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,a,b,method,cover,cover_error,quality,row['id']))
     except Exception as exc:
         print('CF_STAGE '+json.dumps({'stage':'error','detail':f'#{row["id"]}: {str(exc)[:300]}'},ensure_ascii=True),flush=True)
