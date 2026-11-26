@@ -1,7 +1,8 @@
 (() => {
  const views={
-  overview:{title:'Обзор производства',ids:['production-controls']},
-  production:{title:'Производство',ids:['production-controls','factory']},
+  overview:{title:'Производство',ids:['production-runs','production-controls']},
+  configurations:{title:'Конфигурации',ids:['run-configurations']},
+  production:{title:'Расширенное производство',ids:['production-controls','factory']},
   library:{title:'Библиотека видео',ids:['local-library','telegram','sources','videos']},
   results:{title:'Готовые ролики',ids:['clips']},
   design:{title:'Шаблоны и фоны',ids:['short-template']},
@@ -30,10 +31,8 @@
    else link.removeAttribute('aria-current');
   }
   const metrics=document.getElementById('workspace-metrics');
-  if(metrics)metrics.hidden=!['overview','production','results'].includes(key);
-  const target=document.getElementById(hash);
-  if(target&&!target.hidden&&hash!=='overview')requestAnimationFrame(()=>target.scrollIntoView({block:'start'}));
-  else window.scrollTo(0,0);
+  if(metrics)metrics.hidden=!['production','results'].includes(key);
+  window.scrollTo(0,0);
  }
  window.addEventListener('hashchange',show);
  show();
