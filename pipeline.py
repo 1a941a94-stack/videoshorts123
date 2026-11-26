@@ -158,8 +158,13 @@ def main():
         settings.update(json.loads(args.config.read_text(encoding='utf-8')))
     if settings['limit']<=0 or settings['length']<=0 or settings['count']<=0 or settings['delay']<0 or settings['refresh_hours']<0 or not 0<=settings['threshold']<=1:
         ap.error('Invalid settings')
-    db=connect(args.db)
+    from filelock import FileLock, Timeout
+    lock=FileLock(str(Path(args.db).resolve())+'.production.lock',timeout=0)
+    try: lock.acquire()
+    except Timeout: ap.error('Another production process is active')
+    db=None
     try:
+        db=connect(args.db)
         if args.action=='add': add_source(db,args.query)
         elif args.action=='scan': print(json.dumps(scan(db,settings),ensure_ascii=False))
         elif args.action=='work':
@@ -171,6 +176,8 @@ def main():
         elif args.action=='status':
             for table in ('videos','clips'):
                 print(table,dict(db.execute(f"SELECT status,COUNT(*) FROM {table} GROUP BY status").fetchall()))
-    finally: db.close()
+    finally:
+        if db is not None: db.close()
+        lock.release()
 
 if __name__=='__main__': main()
