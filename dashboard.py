@@ -108,7 +108,7 @@ def create_app(root=ROOT):
                     log=fp.read().decode('utf-8','replace')
         return render_template('dashboard.html',sources=sources,telegram_channels=telegram_channels,videos=videos,clips=clips,stats=stats,total=total,
             running=running,result=result,log=log,action=job['action'],csrf=session['csrf'],
-            short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
+            production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
     @app.post('/telegram/channels')
     def telegram_channels_add():
@@ -201,6 +201,15 @@ def create_app(root=ROOT):
             if job['process'] and job['process'].poll() is None: abort(409)
             (assets/'ad-references'/(name+'.png')).unlink(missing_ok=True)
         return redirect(url_for('index')+'#ad-references')
+
+    @app.post('/production-profiles')
+    def save_production_profile():
+        from production_profiles import save
+        from short_templates import load
+        with lock:
+            try: save(root,request.form.get('name',''),request.form,load(root),[c['name'] for c in read_json(campaigns,{'campaigns':[]})['campaigns']])
+            except ValueError as exc: abort(400,str(exc))
+        return redirect(url_for('index')+'#production-profiles')
 
     @app.post('/short-profiles')
     def save_short_profile():
@@ -342,15 +351,22 @@ def create_app(root=ROOT):
                 mode=request.form.get('mode','long')
                 if mode not in ('short','long'): abort(400)
                 cmd+=['--mode',mode]
+            account=None
+            account_name=request.form.get('production_profile','')
+            if action=='work' and account_name:
+                from production_profiles import load
+                account=load(root).get(account_name)
+                if account is None or mode!='short': abort(400,'Choose a valid short production profile')
             if action=='work':
                 try: limit=int(request.form.get('limit','10'))
                 except ValueError: abort(400)
                 if not 1<=limit<=100: abort(400)
                 cmd+=['--limit',str(limit),'--out',str(out)]
-                if request.form.get('ads')=='1':
+                if (account['campaign'] if account else request.form.get('ads')=='1'):
                     if not campaigns.exists(): abort(400,'Create a campaign first')
                     cmd+=['--campaigns',str(campaigns)]
             env=os.environ.copy()
+            for key in ('CLIP_PRODUCTION_PROFILE','CLIP_CAMPAIGN_NAME'): env.pop(key,None)
             env['CLIP_CAPTIONS']='1' if request.form.get('captions')=='1' else '0'
             env['CLIP_SMART_SPEECH']='1' if request.form.get('smart_speech')=='1' else '0'
             layout=request.form.get('layout','circle')
@@ -360,10 +376,10 @@ def create_app(root=ROOT):
             if background.is_file(): env['CLIP_SHORT_BACKGROUND']=str(background)
             else: env.pop('CLIP_SHORT_BACKGROUND',None)
             env.pop('CLIP_SHORT_TEMPLATE',None)
-            if action=='work' and request.form.get('profile'):
+            if action=='work' and (account or request.form.get('profile')):
                 from short_templates import load,validate
                 profiles=load(root)
-                name=request.form['profile']
+                name=account['template'] if account else request.form['profile']
                 if name not in profiles: abort(400,'Unknown template')
                 spec=validate(profiles[name])
                 env['CLIP_SHORT_TEMPLATE']=json.dumps(spec)
@@ -372,6 +388,12 @@ def create_app(root=ROOT):
                     if not path.is_file(): abort(400,'Background missing')
                     env['CLIP_SHORT_BACKGROUND']=str(path)
                 else: env.pop('CLIP_SHORT_BACKGROUND',None)
+            if account:
+                env['CLIP_PRODUCTION_PROFILE']=account_name
+                env['CLIP_CAPTIONS']='1' if account['captions'] else '0'
+                env['CLIP_FONT_SIZE']=str(account['font_size'])
+                env['CLIP_CAPTION_MARGIN']=str(account['caption_margin'])
+                if account['campaign']: env['CLIP_CAMPAIGN_NAME']=account['campaign']
             log=root/'dashboard-job.log'
             with log.open('wb') as fp:
                 proc=subprocess.Popen(cmd,cwd=root,stdout=fp,stderr=subprocess.STDOUT,env=env)
