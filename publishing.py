@@ -22,6 +22,10 @@ def init(db):
       views INTEGER NOT NULL DEFAULT 0, accepted_views INTEGER NOT NULL DEFAULT 0,
       revenue_kopecks INTEGER NOT NULL DEFAULT 0, measured INTEGER NOT NULL);
     """)
+    with db:
+        cols={r[1] for r in db.execute('PRAGMA table_info(accounts)')}
+        for name,kind in [('production_profile','TEXT'),('auto_queue','INTEGER NOT NULL DEFAULT 0'),('caption_template',"TEXT NOT NULL DEFAULT ''")]:
+            if name not in cols: db.execute(f'ALTER TABLE accounts ADD COLUMN {name} {kind}')
     return db
 
 def add_account(db,name,platform,destination,token_env,topic='',daily_limit=2,interval_seconds=3600):
@@ -37,6 +41,32 @@ def enqueue(db,account,clip,caption,scheduled):
     if not row or row['status']!='done': raise ValueError('Clip is not ready')
     with db:
         db.execute("INSERT OR IGNORE INTO publications(account_id,clip_id,caption,scheduled,updated) VALUES(?,?,?,?,?)",(account,clip,caption,scheduled,int(time.time())))
+
+def sync_ready(db,now=None):
+    """Queue only explicitly opted-in accounts, matching their production profile."""
+    now=int(time.time()) if now is None else int(now)
+    count=0
+    with db:
+        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform='telegram' AND production_profile IS NOT NULL").fetchall()
+        for a in accounts:
+            last=db.execute("SELECT max(scheduled) FROM publications WHERE account_id=? AND status IN ('approved','sending','sent','uncertain')",(a['id'],)).fetchone()[0]
+            slot=max(now,(last or 0)+a['interval_seconds'])
+            rows=db.execute("""SELECT c.id FROM clips c WHERE c.status='done' AND c.production_profile=?
+                AND NOT EXISTS(SELECT 1 FROM publications p WHERE p.account_id=? AND p.clip_id=c.id)
+                ORDER BY c.id LIMIT 1000""",(a['production_profile'],a['id'])).fetchall()
+            for row in rows:
+                caption=a['caption_template'] or ''
+                cur=db.execute("INSERT OR IGNORE INTO publications(account_id,clip_id,caption,scheduled,updated,status) VALUES(?,?,?,?,?,'approved')",(a['id'],row['id'],caption,slot,now))
+                if cur.rowcount: count+=1; slot+=a['interval_seconds']
+    return count
+
+def configure_auto(db,account,profile,caption,interval,enabled):
+    if not 60<=interval<=86400 or len(caption)>1024: raise ValueError('Invalid posting settings')
+    if enabled and not profile: raise ValueError('Choose a production profile')
+    with db:
+        row=db.execute('SELECT platform FROM accounts WHERE id=?',(account,)).fetchone()
+        if not row or (enabled and row['platform']!='telegram'): raise ValueError('Unsupported automatic publication platform')
+        db.execute('UPDATE accounts SET production_profile=?,caption_template=?,interval_seconds=?,auto_queue=? WHERE id=?',(profile or None,caption,interval,int(enabled),account))
 
 def approve(db,pid):
     with db:
@@ -104,6 +134,8 @@ def main():
     a=sub.add_parser('draft'); a.add_argument('account',type=int); a.add_argument('clip',type=int); a.add_argument('caption'); a.add_argument('--scheduled',type=int,default=0)
     a=sub.add_parser('approve'); a.add_argument('id',type=int)
     sub.add_parser('send')
+    sub.add_parser('sync')
+    sub.add_parser('run')
     sub.add_parser('status')
     a=sub.add_parser('measure'); a.add_argument('id',type=int); a.add_argument('views',type=int); a.add_argument('accepted',type=int); a.add_argument('kopecks',type=int)
     args=p.parse_args(); root=args.root.resolve()
@@ -114,10 +146,15 @@ def main():
             with db: db.execute('UPDATE accounts SET enabled=? WHERE id=?',(int(not args.off),args.id))
         elif args.action=='draft': enqueue(db,args.account,args.clip,args.caption,args.scheduled or int(time.time()))
         elif args.action=='approve': print(approve(db,args.id))
-        elif args.action=='send':
+        elif args.action=='sync': print(sync_ready(db))
+        elif args.action in ('send','run'):
             with FileLock(str(root/'publication.lock'),timeout=0):
                 with db: db.execute("UPDATE publications SET status='uncertain',error='Interrupted upload; reconcile manually' WHERE status='sending'")
-                while send_one(db,root): pass
+                while True:
+                    if args.action=='run': sync_ready(db)
+                    while send_one(db,root): pass
+                    if args.action=='send': break
+                    time.sleep(30)
         elif args.action=='measure': measure(db,args.id,args.views,args.accepted,args.kopecks)
         else:
             for table in ('accounts','publications','measurements'):
