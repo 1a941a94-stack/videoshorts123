@@ -1,7 +1,7 @@
 (() => {
 const $=id=>document.getElementById(id);
 const actions={scan:'Поиск видео',work:'Монтаж роликов',retry:'Возврат задач в очередь',send:'Публикация'};
-const stages={search:'Поиск источника',inspect:'Проверка видео и пиков',download:'Скачивание фрагмента',fallback:'Резервное скачивание исходника',localcut:'Локальная нарезка',batch_result:'Итог обработки',framing:'Анализ лиц и кадрирование',captions:'Распознавание речи',render:'Рендеринг видео',save:'Сохранение результата',error:'Ошибка задачи',retry:'Задач возвращено в очередь'};
+const stages={search:'Поиск источника',inspect:'Проверка видео и пиков',download:'Скачивание исходника',cache:'Исходник из кеша',boundaries:'Подбор границ речи',speech:'Анализ предложений Whisper',fallback:'Резервное скачивание исходника',localcut:'Локальная нарезка',batch_result:'Итог обработки',framing:'Анализ лиц и кадрирование',captions:'Распознавание речи',render:'Рендеринг видео',save:'Сохранение результата',error:'Ошибка задачи',retry:'Задач возвращено в очередь'};
 let priorRunning=false, initial=true;
 function clock(s){return [Math.floor(s/3600),Math.floor(s/60)%60,s%60].map(x=>String(x).padStart(2,'0')).join(':')}
 async function poll(){
