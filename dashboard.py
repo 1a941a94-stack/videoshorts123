@@ -19,7 +19,7 @@ def create_app(root=ROOT):
     root=Path(root).resolve()
     app=Flask(__name__,template_folder=str(ROOT/'templates'),static_folder=str(ROOT/'static'))
     app.secret_key=secrets.token_hex(32)
-    app.config.update(MAX_CONTENT_LENGTH=16*1024*1024, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict')
+    app.config.update(MAX_CONTENT_LENGTH=66*1024*1024, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Strict')
     dbpath=root/'clipfactory.sqlite3'
     out=root/'output'
     config=root/'settings.json'
@@ -108,7 +108,7 @@ def create_app(root=ROOT):
                     log=fp.read().decode('utf-8','replace')
         return render_template('dashboard.html',sources=sources,telegram_channels=telegram_channels,videos=videos,clips=clips,stats=stats,total=total,
             running=running,result=result,log=log,action=job['action'],csrf=session['csrf'],
-            short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*.jpg')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
+            short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
     @app.post('/telegram/channels')
     def telegram_channels_add():
@@ -214,27 +214,38 @@ def create_app(root=ROOT):
     def add_short_background():
         import cv2
         import numpy as np
+        from banners import MOTION_EXT
+        from motion_assets import validate_motion
         upload=request.files.get('image')
         if not upload: abort(400)
-        image=cv2.imdecode(np.frombuffer(upload.read(),dtype=np.uint8),cv2.IMREAD_COLOR)
-        if image is None or max(image.shape[:2])>8000: abort(400)
+        suffix=Path(upload.filename or '').suffix.lower()
         folder=assets/'backgrounds'
         with lock:
             folder.mkdir(parents=True,exist_ok=True)
-            if len(list(folder.glob('*.jpg')))>=100: abort(400,'Background limit')
-            path=folder/(secrets.token_hex(12)+'.jpg')
-            ok,data=cv2.imencode('.jpg',image)
-            if not ok: abort(400)
-            path.write_bytes(data.tobytes())
+            if len(list(folder.glob('*')))>=100: abort(400,'Background limit')
+            path=folder/(secrets.token_hex(12)+(suffix if suffix in MOTION_EXT else '.jpg'))
+            try:
+                if suffix in MOTION_EXT:
+                    upload.save(path)
+                    validate_motion(path)
+                else:
+                    image=cv2.imdecode(np.frombuffer(upload.read(),dtype=np.uint8),cv2.IMREAD_COLOR)
+                    if image is None or max(image.shape[:2])>8000: raise ValueError('Invalid background')
+                    ok,data=cv2.imencode('.jpg',image)
+                    if not ok: raise ValueError('Invalid image')
+                    path.write_bytes(data.tobytes())
+            except (ValueError,KeyError,OSError,subprocess.SubprocessError):
+                path.unlink(missing_ok=True)
+                abort(400,'Invalid background media')
         return redirect(url_for('index')+'#short-template')
 
     @app.get('/short-backgrounds/<name>')
     def view_short_background(name):
         import re
-        if not re.fullmatch(r'[a-f0-9]{24}\.jpg',name): abort(404)
+        if not re.fullmatch(r'[a-f0-9]{24}\.(?:jpg|mp4|webm|mov|gif)',name): abort(404)
         path=assets/'backgrounds'/name
         if not path.is_file(): abort(404)
-        return send_file(path,mimetype='image/jpeg')
+        return send_file(path,conditional=True)
 
     @app.post('/short-background')
     def short_background():
@@ -255,7 +266,8 @@ def create_app(root=ROOT):
     def add_campaign():
         upload=request.files.get('image')
         suffix=Path(upload.filename or '').suffix.lower() if upload else ''
-        if suffix not in ('.png','.jpg','.jpeg','.webp'): abort(400,'Invalid image')
+        from banners import MOTION_EXT,IMAGE_EXT
+        if suffix not in IMAGE_EXT | MOTION_EXT: abort(400,'Invalid media')
         name=request.form.get('name','').strip()
         if not name or len(name)>100: abort(400)
         assets.mkdir(exist_ok=True)
@@ -263,7 +275,10 @@ def create_app(root=ROOT):
         upload.save(path)
         try:
             import cv2
-            if cv2.imread(str(path)) is None: raise ValueError('Invalid image')
+            if suffix in MOTION_EXT:
+                from motion_assets import validate_motion
+                validate_motion(path)
+            elif cv2.imread(str(path)) is None: raise ValueError('Invalid image')
             spec=Banner(path,name=name,width=int(request.form['width']),height=int(request.form['height']),
                 position=request.form['position'],margin=int(request.form['margin']),opacity=float(request.form['opacity']),
                 start=float(request.form['start']),end=float(request.form['end']) if request.form.get('end') else None)
@@ -276,7 +291,7 @@ def create_app(root=ROOT):
                 if any(x['name']==name for x in data['campaigns']): raise ValueError('Duplicate campaign')
                 data['campaigns'].append(row)
                 save_json(campaigns,data)
-        except (ValueError,KeyError) as exc:
+        except (ValueError,KeyError,OSError,subprocess.SubprocessError) as exc:
             path.unlink(missing_ok=True)
             abort(400,str(exc))
         return redirect(url_for('index')+'#campaigns')
