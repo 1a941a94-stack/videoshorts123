@@ -34,7 +34,7 @@ def connect(path):
     db.execute('BEGIN IMMEDIATE')
     try:
         cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
-        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'")]:
+        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0')]:
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         db.commit()
     except BaseException:
@@ -113,11 +113,15 @@ def scan(db, settings, finder=discover, extractor=extract, mode='long'):
         print(f'CF_PROGRESS {i} {len(sources)}',flush=True)
     return counts
 
+def approve_short(db,cid):
+    with db:
+        return db.execute("UPDATE clips SET authorized=1 WHERE id=? AND mode='short' AND status='pending'",(cid,)).rowcount
+
 def claim(db,mode='long'):
     db.execute("BEGIN IMMEDIATE")
     try:
         row = db.execute("""SELECT c.*,v.url FROM clips c JOIN videos v ON v.id=c.video_id
-        WHERE c.status='pending' AND c.mode=? ORDER BY coalesce(c.rank,c.score) DESC,c.id LIMIT 1""",(mode,)).fetchone()
+        WHERE c.status='pending' AND c.mode=? AND (c.mode='long' OR c.authorized=1) ORDER BY coalesce(c.rank,c.score) DESC,c.id LIMIT 1""",(mode,)).fetchone()
         if row:
             db.execute("UPDATE clips SET status='running',attempts=attempts+1,updated=? WHERE id=?", (int(time.time()),row['id']))
         db.commit()
@@ -203,7 +207,7 @@ def main():
         elif args.action=='scan': print(json.dumps(scan(db,settings,mode=args.mode),ensure_ascii=False))
         elif args.action=='work':
             before_failed=db.execute("SELECT count(*) FROM clips WHERE status='failed'").fetchone()[0]
-            total=min(args.limit,db.execute("SELECT count(*) FROM clips WHERE status='pending' AND mode=?",(args.mode,)).fetchone()[0])
+            total=min(args.limit,db.execute("SELECT count(*) FROM clips WHERE status='pending' AND mode=? AND (mode='long' OR authorized=1)",(args.mode,)).fetchone()[0])
             print(f'CF_PROGRESS 0 {total}',flush=True)
             for i in range(total):
                 if not process(db,args.out,args.banner,args.campaigns,args.mode): break
