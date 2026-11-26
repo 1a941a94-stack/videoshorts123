@@ -21,7 +21,7 @@ def run(db,root,out,run_id,settings):
     max_scans=3
     with db:
         db.execute("UPDATE clips SET status='pending' WHERE run_id=? AND status='running'",(run_id,))
-        db.execute("UPDATE production_run_tasks SET status='done' WHERE run_id=? AND clip_id IN (SELECT id FROM clips WHERE run_id=? AND status='done')",(run_id,run_id))
+        db.execute("INSERT INTO production_run_tasks(run_id,clip_id,status,updated) SELECT run_id,id,status,updated FROM clips WHERE run_id=? AND status IN ('done','failed','duplicate','ad_review','ad_rejected') ON CONFLICT(run_id,clip_id) DO UPDATE SET status=excluded.status,updated=excluded.updated",(run_id,))
     set_status(db,run_id,'running')
     try:
         while True:
@@ -39,7 +39,7 @@ def run(db,root,out,run_id,settings):
                 return
             row=claim(db,mode,run_id,config.get('only_ids'))
             if row is None:
-                if config.get('auto_search') and scanned<max_scans:
+                while config.get('auto_search') and scanned<max_scans and not stop.exists():
                     scanned+=1
                     before=db.execute("SELECT count(*) FROM clips WHERE mode=? AND status='pending'",(mode,)).fetchone()[0]
                     scan(db,settings,mode=mode)
@@ -48,7 +48,13 @@ def run(db,root,out,run_id,settings):
                         try: scan_library(db,root)
                         except Exception as exc: stage('telegram_scan',str(exc)[:300])
                     after=db.execute("SELECT count(*) FROM clips WHERE mode=? AND status='pending'",(mode,)).fetchone()[0]
-                    if after>before: continue
+                    if after>before: break
+                if stop.exists():
+                    set_status(db,run_id,'paused','Stopped during discovery')
+                    return
+                if config.get('auto_search') and 'after' in locals() and after>before:
+                    before=after
+                    continue
                 set_status(db,run_id,'exhausted','No more eligible queued candidates')
                 return
             cid=row['id']
@@ -75,7 +81,7 @@ def run(db,root,out,run_id,settings):
                     time.sleep(1)
                 continue
             record(db,run_id,cid,state)
-            if issue['kind']=='system' and state in ('failed','ad_review'):
+            if issue['kind'] in ('system','settings') and state in ('failed','ad_review'):
                 with db:
                     db.execute("UPDATE clips SET status='pending' WHERE id=?",(cid,))
                 record(db,run_id,cid,'pending')
