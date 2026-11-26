@@ -127,6 +127,99 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/api/production')
+    def production_state():
+        from production_runs import summary
+        from run_configs import load
+        db=connect(dbpath)
+        try:
+            rows=db.execute('SELECT id FROM production_runs ORDER BY id DESC LIMIT 30').fetchall()
+            runs=[summary(db,r['id']) for r in rows]
+            for run in runs: run.pop('snapshot',None)
+            return jsonify(configurations=load(root),runs=runs)
+        finally: db.close()
+
+    @app.post('/run-configs')
+    def manage_config():
+        from run_configs import save,load,write
+        with lock:
+            try:
+                op=request.form.get('operation','save')
+                if op=='save': save(root,request.form)
+                elif op in ('copy','delete'):
+                    data=load(root)
+                    name=request.form['name']
+                    if name not in data['items']: abort(404)
+                    if op=='copy':
+                        target=request.form.get('target','').strip()
+                        if not 1<=len(target)<=80 or target in data['items'] or len(data['items'])>=100: raise ValueError('Invalid new name')
+                        data['items'][target]=dict(data['items'][name])
+                        data['last']=target
+                    else:
+                        del data['items'][name]
+                        if data['last']==name: data['last']=next(iter(data['items']),'')
+                    write(root,data)
+                else: abort(400)
+            except (ValueError,KeyError,OSError) as exc: abort(400,str(exc))
+        return redirect(url_for('index')+'#production-runs')
+
+    def launch_run(run_id):
+        cmd=[sys.executable,'-u',str(ROOT/'pipeline.py'),'--db',str(dbpath)]
+        if config.exists(): cmd+=['--config',str(config)]
+        cmd+=['run-batch',str(run_id),'--out',str(out)]
+        (root/'factory.stop').unlink(missing_ok=True)
+        log=root/'dashboard-job.log'
+        with log.open('wb') as fp:
+            proc=subprocess.Popen(cmd,cwd=root,stdout=fp,stderr=subprocess.STDOUT)
+        job.update(process=proc,action='run-batch',run_id=run_id,log=log,started=time.time(),finished=None)
+
+    @app.post('/production/start')
+    def production_start():
+        from run_configs import load,resolve,write
+        from production_runs import create,set_status
+        with lock:
+            if (job['process'] and job['process'].poll() is None) or preview_lock.locked(): abort(409,'Production or preview active')
+            data=load(root)
+            name=request.form.get('configuration','')
+            try:
+                item=data['items'][name]
+                goal=int(request.form.get('goal') or item['goal'])
+                snap=resolve(root,item)
+                snap['name']=name
+                db=connect(dbpath)
+                try: run_id=create(db,goal,snap)
+                finally: db.close()
+                data['last']=name
+                write(root,data)
+                try: launch_run(run_id)
+                except OSError as exc:
+                    db=connect(dbpath)
+                    try: set_status(db,run_id,'failed',str(exc))
+                    finally: db.close()
+                    raise
+            except (ValueError,KeyError,OSError) as exc: abort(400,str(exc))
+        return redirect(url_for('index')+'#production-runs')
+
+    @app.post('/production/<int:run_id>/pause')
+    def production_pause(run_id):
+        with lock:
+            if job['action']!='run-batch' or job.get('run_id')!=run_id or not job['process'] or job['process'].poll() is not None: abort(409)
+            (root/'factory.stop').touch()
+        return redirect(url_for('index')+'#production-runs')
+
+    @app.post('/production/<int:run_id>/resume')
+    def production_resume(run_id):
+        from production_runs import summary
+        with lock:
+            if (job['process'] and job['process'].poll() is None) or preview_lock.locked(): abort(409)
+            db=connect(dbpath)
+            try:
+                if summary(db,run_id)['status'] not in ('paused','queued','running'): abort(409)
+            except ValueError: abort(404)
+            finally: db.close()
+            launch_run(run_id)
+        return redirect(url_for('index')+'#production-runs')
+
     @app.post('/performance')
     def save_performance():
         mode=request.form.get('encoder','cpu')
