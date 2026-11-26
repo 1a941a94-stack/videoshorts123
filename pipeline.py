@@ -136,12 +136,12 @@ def claim(db,mode='long'):
         raise
 
 def process(db, out, banner=None, campaigns=None, mode='long'):
-    row = claim(db,mode)
-    if row is None: return False
     profile=os.getenv('CLIP_PRODUCTION_PROFILE','') if mode=='short' else ''
     if profile:
         import re
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,48}',profile): raise ValueError('Invalid production profile')
+    row = claim(db,mode)
+    if row is None: return False
     cache_root=out
     if profile: out=out/'profiles'/profile
     out.mkdir(parents=True,exist_ok=True)
@@ -209,13 +209,13 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
                 from short_media import render_short
                 render_short(source,b,tmp,selected)
             else: render(source,a,b,tmp,selected)
-        quality=None
-        if mode=='short':
-            from quality import inspect,verify
-            from source_media import stage
-            stage('quality','Checking rendered output')
-            require_audio=any(s.get('codec_type')=='audio' for s in inspect(source).get('streams',[]))
-            quality=json.dumps(verify(tmp,b-a,require_audio))
+            quality=None
+            if mode=='short':
+                from quality import inspect,verify
+                from source_media import stage
+                stage('quality','Checking rendered output')
+                require_audio=any(s.get('codec_type')=='audio' for s in inspect(source).get('streams',[]))
+                quality=json.dumps(verify(tmp,b-a,require_audio))
         prune_cache(cache)
         print('CF_STAGE '+json.dumps({'stage':'save','detail':f'#{row["id"]}'},ensure_ascii=True),flush=True)
         tmp.replace(dest)
@@ -319,6 +319,8 @@ def main():
                 db.execute("UPDATE clips SET status=CASE WHEN attempts<3 THEN 'pending' ELSE 'failed' END WHERE status='running'")
             run(db,root,args.out,args.limit,args.continuous,args.replenish)
         elif args.action=='work':
+            with db:
+                db.execute("UPDATE clips SET status=CASE WHEN attempts<3 THEN 'pending' ELSE 'failed' END WHERE status='running'")
             before_failed=db.execute("SELECT count(*) FROM clips WHERE status='failed'").fetchone()[0]
             total=min(args.limit,db.execute("SELECT count(*) FROM clips WHERE status='pending' AND mode=?",(args.mode,)).fetchone()[0])
             print(f'CF_PROGRESS 0 {total}',flush=True)
