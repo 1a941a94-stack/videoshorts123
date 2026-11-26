@@ -21,9 +21,39 @@
  window.addEventListener('clip-library-refresh',update);
  update();
  const dialog=document.getElementById('clip-dialog'),player=document.getElementById('clip-player');
- let generation=0;
+ let generation=0, currentId=null;
+ const edit=document.getElementById('clip-edit-form'),toggle=document.getElementById('clip-edit-toggle'),msg=document.getElementById('clip-dialog-message');
+ toggle.addEventListener('click',async()=>{
+  if(!edit.hidden){edit.hidden=true;return;}
+  const id=currentId,token=generation;
+  try{
+   const res=await fetch('/api/clips/'+id+'/edit');if(!res.ok)throw Error('Настройки недоступны');
+   const data=await res.json();if(token!==generation)return;
+   for(const [name,items,empty] of [['background',data.backgrounds,'Цвет фона'],['campaign',data.campaigns,'Без рекламы']]){
+    const field=edit.elements[name];field.replaceChildren(new Option(empty,''));
+    for(const item of items)field.add(new Option(item,item));
+   }
+   for(const [key,value] of Object.entries(data.template))if(edit.elements[key])edit.elements[key].value=value;
+   edit.elements.campaign.value=data.campaign;
+   if(edit.elements.campaign.selectedIndex<0)edit.elements.campaign.selectedIndex=0;
+   edit.elements.captions.checked=data.captions;
+   document.getElementById('clip-edit-note').textContent=data.known?'Настройки предыдущей задачи загружены.':'Исходные настройки старого ролика не сохранены. Проверьте предложенные значения.';
+   edit.hidden=false;
+  }catch(e){msg.textContent=e.message;}
+ });
+ edit.addEventListener('submit',async e=>{
+  e.preventDefault();const token=generation,id=currentId,button=edit.querySelector('button[type=submit]');
+  button.disabled=true;
+  try{
+   const res=await fetch('/clips/'+id+'/edit',{method:'POST',body:new FormData(edit)});
+   const data=await res.json();if(!res.ok)throw Error(data.error||'Не удалось запустить монтаж');
+   if(token!==generation)return;
+   edit.hidden=true;toggle.hidden=true;msg.textContent='Монтаж запущен. Партия #'+data.run_id+'. Предыдущая версия доступна.';
+  }catch(e){if(token===generation)msg.textContent=e.message;}
+  finally{button.disabled=false;}
+ });
  async function openClip(id){
-  const token=++generation;
+  const token=++generation;currentId=id;edit.hidden=true;toggle.hidden=true;
   document.getElementById('clip-dialog-title').textContent='Ролик #'+id;
   document.getElementById('clip-dialog-meta').textContent='';
   document.getElementById('clip-dialog-quality').textContent='';
@@ -37,6 +67,7 @@
    const c=await response.json();if(token!==generation)return;
    document.getElementById('clip-dialog-title').textContent=c.title||'Ролик #'+id;
    document.getElementById('clip-dialog-meta').textContent=[c.source,Math.round(c.duration)+' с',c.campaign||'Без рекламы',c.run_id?'Партия #'+c.run_id:''].filter(Boolean).join(' · ');
+   toggle.hidden=c.mode!=='short'||!['done','failed','ad_review','ad_rejected','duplicate'].includes(c.status);
    const q=c.quality||{};
    document.getElementById('clip-dialog-quality').textContent=[q.width&&q.height?q.width+' × '+q.height:'',q.fps?q.fps+' FPS':'',(c.bytes/1048576).toFixed(1)+' МиБ'].filter(Boolean).join(' · ');
    const download=document.getElementById('clip-download');download.href=player.src;download.download='clip_'+id+'.mp4';download.hidden=false;
