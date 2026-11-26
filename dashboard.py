@@ -96,7 +96,19 @@ def create_app(root=ROOT):
             sources=db.execute('SELECT * FROM sources ORDER BY id DESC').fetchall()
             telegram_channels=db.execute('SELECT * FROM telegram_channels ORDER BY name').fetchall()
             videos=db.execute('SELECT * FROM videos ORDER BY checked DESC LIMIT 100').fetchall()
-            clips=db.execute('SELECT c.*,v.title,v.url FROM clips c JOIN videos v ON v.id=c.video_id ORDER BY c.id DESC LIMIT 100').fetchall()
+            status=request.args.get('clip_status','all')
+            if status not in ('all','done','pending','running','failed','duplicate','ad_review','ad_rejected','archived'): status='all'
+            query=request.args.get('q','').strip()[:150]
+            page=max(1,min(100000,request.args.get('page',1,type=int)))
+            where=[]; params=[]
+            if status!='all': where.append('c.status=?'); params.append(status)
+            else: where.append("c.status!='archived'")
+            if query: where.append("(instr(lower(coalesce(v.title,'')),lower(?))>0 OR cast(c.id as text)=?)"); params.extend([query,query.removeprefix('#')])
+            clause=' WHERE '+' AND '.join(where) if where else ''
+            base=' FROM clips c JOIN videos v ON v.id=c.video_id'+clause
+            clip_count=db.execute('SELECT count(*)'+base,params).fetchone()[0]
+            page=min(page,max(1,(clip_count+99)//100))
+            clips=db.execute('SELECT c.*,v.title,v.url'+base+' ORDER BY c.id DESC LIMIT 100 OFFSET ?',(*params,(page-1)*100)).fetchall()
             stats=dict(db.execute('SELECT status,count(*) FROM clips GROUP BY status').fetchall())
             total=db.execute('SELECT count(*) FROM videos').fetchone()[0]
         finally: db.close()
@@ -111,6 +123,7 @@ def create_app(root=ROOT):
                     log=fp.read().decode('utf-8','replace')
         return render_template('dashboard.html',sources=sources,telegram_channels=telegram_channels,videos=videos,clips=clips,stats=stats,total=total,
             running=running,result=result,log=log,action=job['action'],csrf=session['csrf'],
+            clip_status=status,clip_query=query,clip_page=page,clip_count=clip_count,
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
@@ -594,10 +607,66 @@ def create_app(root=ROOT):
         finally: db.close()
         return redirect(url_for('publication_page'))
 
+    @app.post('/clips/bulk')
+    def bulk_clips():
+        import tempfile
+        import zipfile
+        from filelock import FileLock,Timeout
+        try: ids=list(dict.fromkeys(int(x) for x in request.form.getlist('ids')))
+        except ValueError: abort(400)
+        if not 1<=len(ids)<=100 or min(ids)<1: abort(400,'Select 1–100 clips')
+        action=request.form.get('operation')
+        if action not in ('archive','restore','remontage','export'): abort(400)
+        marks=','.join('?' for _ in ids)
+        db=connect(dbpath)
+        try:
+            if action=='export':
+                rows=db.execute(f"SELECT * FROM clips WHERE id IN ({marks}) AND status='done'",ids).fetchall()
+                if len(rows)!=len(ids): abort(400,'Export only completed clips')
+                entries=[]
+                for row in rows:
+                    for key,ext in [('output','.mp4'),('cover','.jpg')]:
+                        if not row[key]: continue
+                        p=(root/row[key]).resolve()
+                        if not p.is_relative_to(out.resolve()) or p.suffix!=ext or not p.is_file(): abort(409,'Output missing')
+                        entries.append((p,f"clip_{row['id']}{ext}"))
+                if sum(p.stat().st_size for p,_ in entries)>512*1024**2: abort(400,'Export limit 512 MiB')
+                fp=tempfile.TemporaryFile()
+                try:
+                    with zipfile.ZipFile(fp,'w',compression=zipfile.ZIP_STORED) as z:
+                        for p,name in entries: z.write(p,name)
+                    fp.seek(0)
+                    response=send_file(fp,mimetype='application/zip',as_attachment=True,download_name='clipfactory-export.zip')
+                    response.call_on_close(fp.close)
+                    return response
+                except BaseException:
+                    fp.close()
+                    raise
+            try:
+                with FileLock(str(dbpath)+'.production.lock',timeout=0):
+                    with db:
+                        db.execute('BEGIN IMMEDIATE')
+                        rows=db.execute(f'SELECT id,status,output FROM clips WHERE id IN ({marks})',ids).fetchall()
+                        if len(rows)!=len(ids): abort(404)
+                        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publications'").fetchone():
+                            if db.execute(f'SELECT 1 FROM publications WHERE clip_id IN ({marks}) LIMIT 1',ids).fetchone(): abort(409,'Selected clips have publication records')
+                        allowed={'archive':('done','pending','failed','duplicate','ad_review','ad_rejected'),'restore':('archived',),'remontage':('done','failed','ad_review','ad_rejected')}[action]
+                        if any(row['status'] not in allowed for row in rows): abort(409,'Invalid clip state for this action')
+                        for row in rows:
+                            if action=='archive':
+                                db.execute("UPDATE clips SET archived_status=status,status='archived' WHERE id=?",(row['id'],))
+                            elif action=='restore':
+                                db.execute("UPDATE clips SET status=coalesce(archived_status,'pending'),archived_status=NULL WHERE id=?",(row['id'],))
+                            else:
+                                db.execute("UPDATE clips SET status='pending',attempts=0,error=NULL,updated=? WHERE id=?",(int(time.time()),row['id']))
+            except Timeout: abort(409,'Stop production before changing queue')
+        finally: db.close()
+        return redirect(url_for('index')+'#clips')
+
     @app.get('/clips/<int:cid>/cover')
     def cover(cid):
         db=connect(dbpath)
-        try: row=db.execute("SELECT cover FROM clips WHERE id=? AND status='done'",(cid,)).fetchone()
+        try: row=db.execute("SELECT cover FROM clips WHERE id=?",(cid,)).fetchone()
         finally: db.close()
         if not row or not row['cover']: abort(404)
         path=(root/row['cover']).resolve()
@@ -607,7 +676,7 @@ def create_app(root=ROOT):
     @app.get('/clips/<int:cid>/video')
     def video(cid):
         db=connect(dbpath)
-        try: row=db.execute("SELECT output FROM clips WHERE id=? AND status='done'",(cid,)).fetchone()
+        try: row=db.execute("SELECT output FROM clips WHERE id=?",(cid,)).fetchone()
         finally: db.close()
         if not row or not row['output']: abort(404)
         path=(root/row['output']).resolve()
