@@ -137,12 +137,12 @@ def claim(db,mode='long',run_id=None):
         db.rollback()
         raise
 
-def process(db, out, banner=None, campaigns=None, mode='long'):
+def process(db, out, banner=None, campaigns=None, mode='long', *, claimed=None):
     profile=os.getenv('CLIP_PRODUCTION_PROFILE','') if mode=='short' else ''
     if profile:
         import re
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,48}',profile): raise ValueError('Invalid production profile')
-    row = claim(db,mode)
+    row = claimed if claimed is not None else claim(db,mode)
     if row is None: return False
     cache_root=out
     if profile: out=out/'profiles'/profile
@@ -270,6 +270,9 @@ def main():
     factory.add_argument('--out',type=Path,default=Path('output'))
     factory.add_argument('--continuous',action='store_true')
     factory.add_argument('--replenish',action='store_true')
+    batch=sub.add_parser('run-batch')
+    batch.add_argument('run_id',type=int)
+    batch.add_argument('--out',type=Path,default=Path('output'))
     local=sub.add_parser('import-local')
     local.add_argument('folder',type=Path)
     sub.add_parser('status')
@@ -294,7 +297,10 @@ def main():
     db=None
     try:
         db=connect(args.db)
-        if args.action=='import-local':
+        if args.action=='run-batch':
+            from batch_worker import run
+            run(db,Path(args.db).resolve().parent,args.out,args.run_id,settings)
+        elif args.action=='import-local':
             from local_import import import_folder
             results=import_folder(db,Path(args.db).resolve().parent,args.folder)
             for name,status in results: print(name,status,flush=True)
