@@ -39,7 +39,7 @@ def connect(path):
     db.execute('BEGIN IMMEDIATE')
     try:
         cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
-        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT'),('production_profile','TEXT'),('cover','TEXT'),('cover_error','TEXT'),('quality_result','TEXT')]:
+        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT'),('production_profile','TEXT'),('cover','TEXT'),('cover_error','TEXT'),('quality_result','TEXT'),('archived_status','TEXT')]:
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         db.commit()
     except BaseException:
@@ -148,7 +148,9 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
     with db:
         db.execute("UPDATE clips SET production_profile=? WHERE id=?",(profile or None,row['id']))
     raw = out / f"raw_{row['id']}.mp4"
-    dest = out / f"clip_{row['id']}.mp4"
+    # Keep prior successful versions untouched until the new output passes QC.
+    version=f"_v{time.time_ns()}" if row['output'] else ''
+    dest = out / f"clip_{row['id']}{version}.mp4"
     tmp = out / f"clip_{row['id']}.partial.mp4"
     try:
         from banners import choose
