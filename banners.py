@@ -24,12 +24,17 @@ class Banner:
     opacity: float = 1.0
     start: float = 0.0
     end: float | None = None
+    x: int = 0
+    y: int = 0
 
     def __post_init__(self):
         if not self.path.is_file(): raise ValueError(f'Banner not found: {self.path}')
         if self.path.suffix.lower() not in IMAGE_EXT | MOTION_EXT: raise ValueError('Unsupported banner media')
         if not 1<=self.width<=1080 or not 1<=self.height<=1920: raise ValueError('Invalid dimensions')
         if self.position not in ('top','bottom','center'): raise ValueError('Invalid position')
+        if abs(self.x)+self.width/2>540 or not -960<=self.y<=960: raise ValueError('Invalid banner offset')
+        top={'top':self.margin,'bottom':1920-self.height-self.margin,'center':(1920-self.height)/2}[self.position]+self.y
+        if top<0 or top+self.height>1920: raise ValueError('Banner outside canvas')
         if not 0<=self.margin<=1920-self.height: raise ValueError('Invalid margin')
         if not math.isfinite(self.opacity) or not 0<=self.opacity<=1: raise ValueError('Invalid opacity')
         if not math.isfinite(self.start) or self.start<0: raise ValueError('Invalid start')
@@ -41,7 +46,7 @@ class Banner:
         y={'top':str(self.margin),'bottom':f'H-h-{self.margin}','center':'(H-h)/2'}[self.position]
         return (f'[base];[1:v]setpts=PTS-STARTPTS,scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,'
                 f'format=rgba,colorchannelmixer=aa={self.opacity}[ad];'
-                f"[base][ad]overlay=(W-w)/2:{y}:enable='gte(t,{self.start})*lt(t,{end})'[v]")
+                f"[base][ad]overlay=(W-w)/2+({self.x}):({y})+({self.y}):enable='gte(t,{self.start})*lt(t,{end})'[v]")
 
 def choose(config, duration, rng=None, campaign=None):
     config=Path(config).resolve()
@@ -60,10 +65,20 @@ def choose(config, duration, rng=None, campaign=None):
         else:
             weight=float(row.get('weight',1))
             if not math.isfinite(weight) or weight<=0: raise ValueError('Invalid campaign weight')
-            spec={k:row[k] for k in ('name','width','height','position','margin','opacity','start','end') if k in row}
+            spec={k:row[k] for k in ('name','width','height','position','margin','opacity','start','end','x','y') if k in row}
             banner=Banner(path=(config.parent/row['path']).resolve(),**spec)
             if banner.start<duration:
                 active.append(banner)
                 weights.append(weight)
     if not active: raise ValueError('No eligible active banner campaign')
     return (rng or random).choices(active,weights=weights,k=1)[0]
+
+
+def overlap_warning(banner,template):
+    """Conservative intersection of layout bounding boxes, not pixel-level occlusion."""
+    if banner is None or banner.opacity==0: return False
+    half=template['size']/2+template['border']
+    cx=540+template['x']; cy=960+template['y']
+    left=540+banner.x-banner.width/2
+    top={'top':banner.margin,'bottom':1920-banner.height-banner.margin,'center':(1920-banner.height)/2}[banner.position]+banner.y
+    return left<cx+half and left+banner.width>cx-half and top<cy+half and top+banner.height>cy-half
