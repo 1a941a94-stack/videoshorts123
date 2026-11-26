@@ -1,7 +1,7 @@
 (() => {
 const $=id=>document.getElementById(id);
 const actions={'scan-telegram-library':'Поиск по библиотеке Telegram','scan-telegram':'Поиск в Telegram','import-short':'Импорт короткого видео',scan:'Поиск видео',work:'Монтаж роликов',retry:'Возврат задач в очередь',send:'Публикация'};
-const stages={telegram_scan:'Проверка истории Telegram',import_short:'Импорт видео',search:'Поиск источника',inspect:'Проверка видео и пиков',download:'Скачивание исходника',cache:'Исходник из кеша',boundaries:'Подбор границ речи',speech:'Анализ предложений Whisper',fallback:'Резервное скачивание исходника',localcut:'Локальная нарезка',batch_result:'Итог обработки',framing:'Анализ лиц и кадрирование',captions:'Распознавание речи',render:'Рендеринг видео',save:'Сохранение результата',error:'Ошибка задачи',retry:'Задач возвращено в очередь'};
+const stages={duplicate_check:'Проверка дублей',telegram_scan:'Проверка истории Telegram',import_short:'Импорт видео',search:'Поиск источника',inspect:'Проверка видео и пиков',download:'Скачивание исходника',cache:'Исходник из кеша',boundaries:'Подбор границ речи',speech:'Анализ предложений Whisper',fallback:'Резервное скачивание исходника',localcut:'Локальная нарезка',batch_result:'Итог обработки',framing:'Анализ лиц и кадрирование',captions:'Распознавание речи',render:'Рендеринг видео',save:'Сохранение результата',error:'Ошибка задачи',retry:'Задач возвращено в очередь'};
 let priorRunning=false, initial=true;
 function clock(s){return [Math.floor(s/3600),Math.floor(s/60)%60,s%60].map(x=>String(x).padStart(2,'0')).join(':')}
 async function poll(){
@@ -25,7 +25,7 @@ async function poll(){
  $('live-current').textContent=d.active.map(c=>'#'+c.id+' · '+(c.title||'')).join(' | ');
  const log=$('live-log'), follow=log.scrollHeight-log.scrollTop-log.clientHeight<40;
  if(log.textContent!==d.log){log.textContent=d.log;if(follow)log.scrollTop=log.scrollHeight}
- const keys=['videos','pending','running','done','failed'];
+ const keys=['videos','pending','running','done','failed','duplicate'];
  document.querySelectorAll('.metrics strong').forEach((el,i)=>el.textContent=d.stats[keys[i]]||0);
  document.querySelectorAll('.actions button').forEach(b=>b.disabled=d.running);
  if(!initial&&priorRunning&&!d.running){
