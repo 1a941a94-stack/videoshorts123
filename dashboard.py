@@ -101,7 +101,7 @@ def create_app(root=ROOT):
             query=request.args.get('q','').strip()[:150]
             page=max(1,min(100000,request.args.get('page',1,type=int)))
             where=[]; params=[]
-            if status=='done': where.append("c.output IS NOT NULL AND c.status!='archived'")
+            if status=='done': where.append("c.output IS NOT NULL AND c.status NOT IN ('archived','purged')")
             elif status!='all': where.append('c.status=?'); params.append(status)
             else: where.append("c.status NOT IN ('archived','purged')")
             batch_id=request.args.get('batch',type=int)
@@ -294,7 +294,11 @@ def create_app(root=ROOT):
             if (job['process'] and job['process'].poll() is None) or preview_lock.locked(): abort(409)
             db=connect(dbpath)
             try:
-                if summary(db,run_id)['status'] not in ('paused','queued','running'): abort(409)
+                batch=summary(db,run_id)
+                if batch['status'] not in ('paused','queued','running'): abort(409)
+                from diagnostics import readiness
+                issues=[x['name'] for x in readiness(root,batch['mode']) if x['required'] and not x['ok']]
+                if issues: abort(409,'Не готова система: '+', '.join(issues))
             except ValueError: abort(404)
             finally: db.close()
             launch_run(run_id)
@@ -504,6 +508,9 @@ def create_app(root=ROOT):
                 render_short(source,duration,result,banner,template=spec,background_path=background,captions=request.form.get('preview_captions')=='1',caption_style=from_form(request.form))
                 verify(result,duration,any(s.get('codec_type')=='audio' for s in streams))
                 from banners import overlap_warning
+                if banner and spec.get('ad_layout'):
+                    from dataclasses import replace
+                    banner=replace(banner,position='center',margin=0,**spec['ad_layout'])
                 response=send_file(BytesIO(result.read_bytes()),mimetype='video/mp4',download_name='preview.mp4',max_age=0)
                 response.headers['X-Banner-Overlap']='1' if overlap_warning(banner,spec) else '0'
                 return response
