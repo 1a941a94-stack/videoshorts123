@@ -47,7 +47,7 @@ def compare(a,b):
 
 def find_duplicate(db,cid,fp):
     rows=db.execute("""SELECT f.clip_id,f.payload FROM fingerprints f JOIN clips c ON c.id=f.clip_id
-        WHERE f.clip_id<>? AND c.status='done' AND c.mode='short'
+        WHERE f.clip_id<>? AND (c.status='done' OR (c.status='archived' AND c.archived_status='done')) AND c.mode='short'
         AND (f.sha256=? OR abs(f.duration-?)<=?) ORDER BY f.clip_id""",
         (cid,fp['sha256'],fp['duration'],max(.6,fp['duration']*.05)))
     visual=None
