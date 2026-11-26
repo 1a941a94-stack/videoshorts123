@@ -1,0 +1,12 @@
+services:
+  producer:
+    build: .
+    restart: unless-stopped
+    init: true
+    volumes:
+      - clipdata:/data
+    environment:
+      CLIP_CAPTIONS: "0"
+    command: ["--daily", "30", "--workers", "1"]
+volumes:
+  clipdata:
