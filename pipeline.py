@@ -39,7 +39,7 @@ def connect(path):
     db.execute('BEGIN IMMEDIATE')
     try:
         cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
-        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT'),('production_profile','TEXT'),('cover','TEXT'),('cover_error','TEXT')]:
+        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT'),('production_profile','TEXT'),('cover','TEXT'),('cover_error','TEXT'),('quality_result','TEXT')]:
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         db.commit()
     except BaseException:
@@ -206,6 +206,13 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
                 from short_media import render_short
                 render_short(source,b,tmp,selected)
             else: render(source,a,b,tmp,selected)
+        quality=None
+        if mode=='short':
+            from quality import inspect,verify
+            from source_media import stage
+            stage('quality','Checking rendered output')
+            require_audio=any(s.get('codec_type')=='audio' for s in inspect(source).get('streams',[]))
+            quality=json.dumps(verify(tmp,b-a,require_audio))
         prune_cache(cache)
         print('CF_STAGE '+json.dumps({'stage':'save','detail':f'#{row["id"]}'},ensure_ascii=True),flush=True)
         tmp.replace(dest)
@@ -220,7 +227,7 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
             except Exception as exc:
                 cover_error=str(exc)[:500]
         with db:
-            db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=?,actual_start=?,actual_end=?,boundary_method=?,cover=?,cover_error=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,a,b,method,cover,cover_error,row['id']))
+            db.execute("UPDATE clips SET status='done',output=?,error=NULL,updated=?,campaign=?,actual_start=?,actual_end=?,boundary_method=?,cover=?,cover_error=?,quality_result=? WHERE id=?", (str(dest),int(time.time()),getattr(selected,'name','manual') if selected else None,a,b,method,cover,cover_error,quality,row['id']))
     except Exception as exc:
         print('CF_STAGE '+json.dumps({'stage':'error','detail':f'#{row["id"]}: {str(exc)[:300]}'},ensure_ascii=True),flush=True)
         with db:
