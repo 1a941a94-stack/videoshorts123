@@ -247,7 +247,8 @@ def create_app(root=ROOT):
                 if not .5<=duration<=5: abort(400,'Source must contain at least 0.5 seconds')
                 name=request.form.get('preview_campaign','')
                 banner=choose(campaigns,duration,campaign=name) if name else None
-                render_short(source,duration,result,banner,template=spec,background_path=background,captions=False)
+                from caption_style import from_form
+                render_short(source,duration,result,banner,template=spec,background_path=background,captions=request.form.get('preview_captions')=='1',caption_style=from_form(request.form))
                 verify(result,duration,any(s.get('codec_type')=='audio' for s in streams))
                 from banners import overlap_warning
                 response=send_file(BytesIO(result.read_bytes()),mimetype='video/mp4',download_name='preview.mp4',max_age=0)
@@ -458,6 +459,7 @@ def create_app(root=ROOT):
                     if not campaigns.exists(): abort(400,'Create a campaign first')
                     cmd+=['--campaigns',str(campaigns)]
             env=os.environ.copy()
+            env.pop('CLIP_CAPTION_STYLE',None)
             for key in ('CLIP_PRODUCTION_PROFILE','CLIP_CAMPAIGN_NAME','CLIP_COVER_MODE','CLIP_COVER_TITLE','CLIP_COVER_COLOR'): env.pop(key,None)
             env['CLIP_CAPTIONS']='1' if request.form.get('captions')=='1' else '0'
             env['CLIP_SMART_SPEECH']='1' if request.form.get('smart_speech')=='1' else '0'
@@ -486,6 +488,8 @@ def create_app(root=ROOT):
                 env['CLIP_COVER_COLOR']=account.get('cover_color','#172536')
                 env['CLIP_PRODUCTION_PROFILE']=account_name
                 env['CLIP_CAPTIONS']='1' if account['captions'] else '0'
+                from caption_style import from_account
+                env['CLIP_CAPTION_STYLE']=json.dumps(from_account(account))
                 env['CLIP_FONT_SIZE']=str(account['font_size'])
                 env['CLIP_CAPTION_MARGIN']=str(account['caption_margin'])
                 if account['campaign']: env['CLIP_CAMPAIGN_NAME']=account['campaign']
