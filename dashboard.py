@@ -326,6 +326,22 @@ def create_app(root=ROOT):
         finally: db.close()
         return redirect(url_for('index')+'#sources')
 
+    @app.post('/sources/<int:sid>/delete')
+    def delete_source(sid):
+        db=connect(dbpath)
+        try:
+            with db: db.execute('DELETE FROM sources WHERE id=?',(sid,))
+        finally: db.close()
+        return redirect(url_for('index')+'#sources')
+
+    @app.post('/telegram/channels/<name>/delete')
+    def delete_channel(name):
+        db=connect(dbpath)
+        try:
+            with db: db.execute('DELETE FROM telegram_channels WHERE name=?',(name,))
+        finally: db.close()
+        return redirect(url_for('index')+'#telegram')
+
     @app.post('/settings')
     def settings():
         try:
@@ -502,7 +518,7 @@ def create_app(root=ROOT):
             except (ValueError,KeyError,OSError,subprocess.SubprocessError):
                 path.unlink(missing_ok=True)
                 abort(400,'Invalid background media')
-        return redirect(url_for('index')+'#short-template')
+        return redirect(url_for('index')+'#media-library')
 
     @app.get('/short-backgrounds/<name>')
     def view_short_background(name):
