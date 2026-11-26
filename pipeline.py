@@ -101,7 +101,9 @@ def inspect_video(db, entry, settings, extractor=extract, mode='long'):
 
 def scan(db, settings, finder=discover, extractor=extract, mode='long'):
     counts = {}
-    sources=db.execute("SELECT * FROM sources WHERE enabled=1").fetchall() if mode=='long' else [{'query':q,'id':None} for q in ('смешные короткие видео shorts','мемы приколы shorts','смешные животные shorts','funny unexpected moments shorts')]
+    sources=db.execute("SELECT * FROM sources WHERE enabled=1").fetchall()
+    if mode=='short' and not sources and not db.execute('SELECT 1 FROM sources LIMIT 1').fetchone():
+        sources=[{'query':q,'id':None} for q in ('смешные короткие видео shorts','мемы приколы shorts','смешные животные shorts','funny unexpected moments shorts')]
     print(f'CF_PROGRESS 0 {len(sources)}',flush=True)
     for i,src in enumerate(sources,1):
         print('CF_STAGE '+json.dumps({'stage':'search','detail':src['query']},ensure_ascii=True),flush=True)
