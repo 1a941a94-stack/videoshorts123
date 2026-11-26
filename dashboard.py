@@ -115,7 +115,7 @@ def create_app(root=ROOT):
         from telegram_source import add_channels
         db=connect(dbpath)
         try:
-            add_channels(db,request.form.get('channels','').splitlines(),int(request.form.get('history','100')),int(request.form.get('views','1000')))
+            add_channels(db,request.form.get('channels','').splitlines(),int(request.form.get('history','100')),int(request.form.get('views','0')))
         except ValueError as exc: abort(400,str(exc))
         finally: db.close()
         return redirect(url_for('index')+'#telegram')
@@ -236,7 +236,7 @@ def create_app(root=ROOT):
                 try:
                     channel=channel_name(request.form.get('channel',''))
                     limit=int(request.form.get('history','100'))
-                    views=int(request.form.get('views','1000'))
+                    views=int(request.form.get('views','0'))
                     if not 1<=limit<=1000 or views<0: raise ValueError()
                 except ValueError: abort(400,'Invalid Telegram scan settings')
                 cmd += [channel,'--limit',str(limit),'--min-views',str(views)]
