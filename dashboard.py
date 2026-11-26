@@ -366,7 +366,7 @@ def create_app(root=ROOT):
                     if not campaigns.exists(): abort(400,'Create a campaign first')
                     cmd+=['--campaigns',str(campaigns)]
             env=os.environ.copy()
-            for key in ('CLIP_PRODUCTION_PROFILE','CLIP_CAMPAIGN_NAME'): env.pop(key,None)
+            for key in ('CLIP_PRODUCTION_PROFILE','CLIP_CAMPAIGN_NAME','CLIP_COVER_MODE','CLIP_COVER_TITLE','CLIP_COVER_COLOR'): env.pop(key,None)
             env['CLIP_CAPTIONS']='1' if request.form.get('captions')=='1' else '0'
             env['CLIP_SMART_SPEECH']='1' if request.form.get('smart_speech')=='1' else '0'
             layout=request.form.get('layout','circle')
@@ -389,6 +389,9 @@ def create_app(root=ROOT):
                     env['CLIP_SHORT_BACKGROUND']=str(path)
                 else: env.pop('CLIP_SHORT_BACKGROUND',None)
             if account:
+                env['CLIP_COVER_MODE']=account.get('cover_mode','auto')
+                env['CLIP_COVER_TITLE']=account.get('cover_title','') or account.get('handle','')
+                env['CLIP_COVER_COLOR']=account.get('cover_color','#172536')
                 env['CLIP_PRODUCTION_PROFILE']=account_name
                 env['CLIP_CAPTIONS']='1' if account['captions'] else '0'
                 env['CLIP_FONT_SIZE']=str(account['font_size'])
@@ -439,6 +442,16 @@ def create_app(root=ROOT):
         except (ValueError,KeyError,sqlite3.IntegrityError): abort(400,'Invalid publication settings')
         finally: db.close()
         return redirect(url_for('publication_page'))
+
+    @app.get('/clips/<int:cid>/cover')
+    def cover(cid):
+        db=connect(dbpath)
+        try: row=db.execute("SELECT cover FROM clips WHERE id=? AND status='done'",(cid,)).fetchone()
+        finally: db.close()
+        if not row or not row['cover']: abort(404)
+        path=(root/row['cover']).resolve()
+        if not path.is_relative_to(out.resolve()) or not path.is_file() or path.suffix!='.jpg': abort(404)
+        return send_file(path,mimetype='image/jpeg',conditional=True)
 
     @app.get('/clips/<int:cid>/video')
     def video(cid):
