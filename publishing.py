@@ -47,7 +47,7 @@ def sync_ready(db,now=None):
     now=int(time.time()) if now is None else int(now)
     count=0
     with db:
-        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform='telegram' AND production_profile IS NOT NULL").fetchall()
+        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform IN ('telegram','instagram') AND production_profile IS NOT NULL").fetchall()
         for a in accounts:
             last=db.execute("SELECT max(scheduled) FROM publications WHERE account_id=? AND status IN ('approved','sending','sent','uncertain')",(a['id'],)).fetchone()[0]
             slot=max(now,(last or 0)+a['interval_seconds'])
@@ -65,7 +65,7 @@ def configure_auto(db,account,profile,caption,interval,enabled):
     if enabled and not profile: raise ValueError('Choose a production profile')
     with db:
         row=db.execute('SELECT platform FROM accounts WHERE id=?',(account,)).fetchone()
-        if not row or (enabled and row['platform']!='telegram'): raise ValueError('Unsupported automatic publication platform')
+        if not row or (enabled and row['platform'] not in ('telegram','instagram')): raise ValueError('Unsupported automatic publication platform')
         db.execute('UPDATE accounts SET production_profile=?,caption_template=?,interval_seconds=?,auto_queue=? WHERE id=?',(profile or None,caption,interval,int(enabled),account))
 
 def approve(db,pid):
@@ -78,7 +78,7 @@ def claim(db,now):
         row=db.execute("""SELECT p.*,a.platform,a.destination,a.token_env,c.output FROM publications p
         JOIN accounts a ON a.id=p.account_id JOIN clips c ON c.id=p.clip_id
         WHERE p.status='approved' AND a.enabled=1 AND p.scheduled<=? AND c.status='done'
-        AND a.platform='telegram'
+        AND a.platform IN ('telegram','instagram')
         AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sending','uncertain'))
         AND (SELECT count(*) FROM publications q WHERE q.account_id=a.id AND q.status='sent' AND q.updated>?)<a.daily_limit
         AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status='sent' AND q.updated>?-a.interval_seconds)
@@ -104,7 +104,7 @@ def telegram(row,path,token):
     link=('https://t.me/'+chat['username']+'/'+str(result['message_id'])) if chat.get('username') else None
     return str(result['message_id']),link
 
-def send_one(db,root,sender=telegram):
+def send_one(db,root,sender=None):
     row=claim(db,int(time.time()))
     if not row: return False
     try:
@@ -113,6 +113,10 @@ def send_one(db,root,sender=telegram):
         if not token or not path.is_relative_to((root/'output').resolve()) or not path.is_file():
             with db: db.execute("UPDATE publications SET status='blocked',error='Missing credential or output',updated=? WHERE id=?",(int(time.time()),row['id']))
             return True
+        if sender is None:
+            if row['platform']=='instagram':
+                from instagram_publish import publish as sender
+            else: sender=telegram
         remote,link=sender(row,path,token)
         with db: db.execute("UPDATE publications SET status='sent',remote_id=?,url=?,updated=?,error=NULL WHERE id=?",(remote,link,int(time.time()),row['id']))
     except Exception:
