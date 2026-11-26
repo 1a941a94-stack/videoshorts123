@@ -23,6 +23,7 @@ def create_app(root=ROOT):
     dbpath=root/'clipfactory.sqlite3'
     out=root/'output'
     config=root/'settings.json'
+    performance=root/'performance.json'
     campaigns=root/'campaigns.json'
     assets=root/'assets'
     lock=threading.Lock()
@@ -110,7 +111,26 @@ def create_app(root=ROOT):
                     log=fp.read().decode('utf-8','replace')
         return render_template('dashboard.html',sources=sources,telegram_channels=telegram_channels,videos=videos,clips=clips,stats=stats,total=total,
             running=running,result=result,log=log,action=job['action'],csrf=session['csrf'],
+            benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
+
+    @app.post('/performance')
+    def save_performance():
+        mode=request.form.get('encoder','cpu')
+        if mode not in ('cpu','auto','qsv'): abort(400)
+        with lock: save_json(performance,{'encoder':mode})
+        return redirect(url_for('index')+'#performance')
+
+    @app.post('/performance/benchmark')
+    def start_benchmark():
+        with lock:
+            if job['process'] and job['process'].poll() is None: abort(409,'Production job already running')
+            if preview_lock.locked(): abort(409,'Preview already running')
+            log=root/'dashboard-job.log'
+            with log.open('wb') as fp:
+                proc=subprocess.Popen([sys.executable,'-u',str(ROOT/'benchmark.py'),'--root',str(root)],cwd=root,stdout=fp,stderr=subprocess.STDOUT)
+            job.update(process=proc,action='benchmark',log=log,started=time.time(),finished=None)
+        return redirect(url_for('index')+'#performance')
 
     @app.post('/telegram/channels')
     def telegram_channels_add():
@@ -485,6 +505,7 @@ def create_app(root=ROOT):
                     if not campaigns.exists(): abort(400,'Create a campaign first')
                     cmd+=['--campaigns',str(campaigns)]
             env=os.environ.copy()
+            env['CLIP_ENCODER']=read_json(performance,{}).get('encoder','cpu')
             env.pop('CLIP_CAPTION_STYLE',None)
             for key in ('CLIP_PRODUCTION_PROFILE','CLIP_CAMPAIGN_NAME','CLIP_COVER_MODE','CLIP_COVER_TITLE','CLIP_COVER_COLOR'): env.pop(key,None)
             env['CLIP_CAPTIONS']='1' if request.form.get('captions')=='1' else '0'
