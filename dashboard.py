@@ -280,7 +280,9 @@ def create_app(root=ROOT):
         from short_media import render_short
         from quality import inspect,verify
         from banners import choose
-        if not preview_lock.acquire(blocking=False): abort(409,'Preview already running')
+        with lock:
+            if job['process'] and job['process'].poll() is None: abort(409,'Stop production before preview')
+            if not preview_lock.acquire(blocking=False): abort(409,'Preview already running')
         try:
             spec=validate(request.form)
             background=''
@@ -302,7 +304,10 @@ def create_app(root=ROOT):
                 streams=meta.get('streams',[])
                 video=next((s for s in streams if s.get('codec_type')=='video'),None)
                 if not video or max(int(video['width']),int(video['height']))>4096: abort(400,'Invalid source dimensions')
-                duration=min(5,float(meta['format']['duration']))
+                import math
+                raw_duration=float(meta['format']['duration'])
+                if not math.isfinite(raw_duration): abort(400,'Invalid source duration')
+                duration=min(5,raw_duration)
                 if not .5<=duration<=5: abort(400,'Source must contain at least 0.5 seconds')
                 name=request.form.get('preview_campaign','')
                 banner=choose(campaigns,duration,campaign=name) if name else None
@@ -463,6 +468,7 @@ def create_app(root=ROOT):
         if action not in ('scan','work','retry','import-short','scan-telegram','scan-telegram-library','discover-telegram','factory'): abort(404)
         with lock:
             if job['process'] and job['process'].poll() is None: abort(409,'Job already running')
+            if preview_lock.locked(): abort(409,'Preview already running')
             cmd=[sys.executable,'-u',str(ROOT/'pipeline.py'),'--db',str(dbpath)]
             if config.exists(): cmd+=['--config',str(config)]
             cmd.append(action)
@@ -614,7 +620,7 @@ def create_app(root=ROOT):
         from filelock import FileLock,Timeout
         try: ids=list(dict.fromkeys(int(x) for x in request.form.getlist('ids')))
         except ValueError: abort(400)
-        if not 1<=len(ids)<=100 or min(ids)<1: abort(400,'Select 1–100 clips')
+        if not 1<=len(ids)<=100 or min(ids)<1 or max(ids)>9223372036854775807: abort(400,'Select 1–100 clips')
         action=request.form.get('operation')
         if action not in ('archive','restore','remontage','export'): abort(400)
         marks=','.join('?' for _ in ids)
@@ -626,7 +632,9 @@ def create_app(root=ROOT):
                 entries=[]
                 for row in rows:
                     for key,ext in [('output','.mp4'),('cover','.jpg')]:
-                        if not row[key]: continue
+                        if not row[key]:
+                            if key=='output': abort(409,'Output missing')
+                            continue
                         p=(root/row[key]).resolve()
                         if not p.is_relative_to(out.resolve()) or p.suffix!=ext or not p.is_file(): abort(409,'Output missing')
                         entries.append((p,f"clip_{row['id']}{ext}"))
@@ -637,6 +645,7 @@ def create_app(root=ROOT):
                         for p,name in entries: z.write(p,name)
                     fp.seek(0)
                     response=send_file(fp,mimetype='application/zip',as_attachment=True,download_name='clipfactory-export.zip')
+                    response.direct_passthrough=False
                     response.call_on_close(fp.close)
                     return response
                 except BaseException:
