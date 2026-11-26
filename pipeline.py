@@ -1,6 +1,7 @@
 """Persistent discovery queue for ClipFactory. No background service required."""
 import argparse
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -38,7 +39,7 @@ def connect(path):
     db.execute('BEGIN IMMEDIATE')
     try:
         cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
-        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT')]:
+        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT'),('production_profile','TEXT')]:
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         db.commit()
     except BaseException:
@@ -137,7 +138,15 @@ def claim(db,mode='long'):
 def process(db, out, banner=None, campaigns=None, mode='long'):
     row = claim(db,mode)
     if row is None: return False
+    profile=os.getenv('CLIP_PRODUCTION_PROFILE','') if mode=='short' else ''
+    if profile:
+        import re
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,48}',profile): raise ValueError('Invalid production profile')
+    cache_root=out
+    if profile: out=out/'profiles'/profile
     out.mkdir(parents=True,exist_ok=True)
+    with db:
+        db.execute("UPDATE clips SET production_profile=? WHERE id=?",(profile or None,row['id']))
     raw = out / f"raw_{row['id']}.mp4"
     dest = out / f"clip_{row['id']}.mp4"
     tmp = out / f"clip_{row['id']}.partial.mp4"
@@ -145,7 +154,7 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
         from banners import choose
         from source_media import cached_source,refine,prune_cache
         from filelock import FileLock
-        cache=out/'source-cache'
+        cache=cache_root/'source-cache'
         cache.mkdir(parents=True,exist_ok=True)
         with FileLock(str(cache/(row['video_id']+'.lock')),timeout=1800):
             prune_cache(cache,exclude=row['video_id'])
@@ -192,7 +201,7 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
                 if verdict!='clean':
                     stage('ad_check',f'#{row["id"]}: {verdict} — {reason}')
                     return True
-            selected=choose(campaigns,b-a) if campaigns else banner
+            selected=choose(campaigns,b-a,campaign=os.getenv('CLIP_CAMPAIGN_NAME') or None) if campaigns else banner
             if mode=='short':
                 from short_media import render_short
                 render_short(source,b,tmp,selected)
