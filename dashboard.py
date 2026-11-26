@@ -878,6 +878,19 @@ def create_app(root=ROOT):
         try: return jsonify(versions=list_versions(db,root,cid))
         finally: db.close()
 
+    @app.post('/clips/<int:cid>/versions/<int:vid>/restore')
+    def restore_clip_version(cid,vid):
+        from clip_versions import restore
+        from filelock import FileLock,Timeout
+        with lock:
+            if (job['process'] and job['process'].poll() is None) or preview_lock.locked(): return jsonify(error='Остановите производство'),409
+            db=connect(dbpath)
+            try:
+                with FileLock(str(dbpath)+'.production.lock',timeout=0): restore(db,root,cid,vid)
+            except (ValueError,OSError,Timeout) as exc: return jsonify(error=str(exc)),409
+            finally: db.close()
+        return jsonify(ok=True)
+
     @app.get('/clips/<int:cid>/versions/<int:vid>/video')
     def clip_history_media(cid,vid):
         from clip_versions import media
