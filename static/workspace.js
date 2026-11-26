@@ -22,6 +22,7 @@
   const view=views[key];
   for(const section of sections)section.hidden=!view.ids.includes(section.id);
   title.textContent=view.title;
+  requestAnimationFrame(()=>window.dispatchEvent(new Event('workspace-change')));
   for(const link of links){
    const active=link.dataset.view===key;
    link.classList.toggle('active',active);
