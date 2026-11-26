@@ -34,7 +34,7 @@ def connect(path):
     db.execute('BEGIN IMMEDIATE')
     try:
         cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
-        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT')]:
+        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'")]:
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         db.commit()
     except BaseException:
@@ -53,21 +53,25 @@ def discover(query, limit):
         data = ydl.extract_info(target, download=False)
         return list(data.get('entries') or [])
 
-def inspect_video(db, entry, settings, extractor=extract):
+def inspect_video(db, entry, settings, extractor=extract, mode='long'):
     vid = entry.get('id')
     if not vid or len(vid)!=11 or not all(c.isalnum() or c in '-_' for c in vid):
         return 'invalid'
     url = 'https://www.youtube.com/watch?v=' + vid
     now = int(time.time())
     old = db.execute("SELECT * FROM videos WHERE id=?", (vid,)).fetchone()
-    if old and now-old['checked'] < settings['refresh_hours']*3600:
+    if old and mode=='long' and now-old['checked'] < settings['refresh_hours']*3600:
         return 'cached'
     info = {}
     try:
         info = extractor(url)
         duration = info.get('duration') or 0
         views = info.get('view_count') or 0
-        if info.get('is_live') or not settings['min_duration'] <= duration <= settings['max_duration'] or views < settings['min_views']:
+        if mode=='short':
+            from short_media import candidate
+            clips=candidate(info,settings['min_views'])
+            status='ready' if clips else 'filtered'
+        elif info.get('is_live') or not settings['min_duration'] <= duration <= settings['max_duration'] or views < settings['min_views']:
             status, clips = 'filtered', []
         else:
             clips = select(info, settings['length'], settings['count'], settings['threshold'])
@@ -82,15 +86,15 @@ def inspect_video(db, entry, settings, extractor=extract):
         checked=excluded.checked,error=excluded.error""",
         (vid,url,info.get('title'),info.get('view_count'),info.get('duration'),status,now,error))
         for c in clips:
-            db.execute("""INSERT OR IGNORE INTO clips(video_id,start,end,score,updated,peak,rank)
-            SELECT ?,?,?,?,?,?,? WHERE NOT EXISTS
+            db.execute("""INSERT OR IGNORE INTO clips(video_id,start,end,score,updated,peak,rank,mode)
+            SELECT ?,?,?,?,?,?,?,? WHERE NOT EXISTS
             (SELECT 1 FROM clips WHERE video_id=? AND start < ? AND end > ?)""",
-            (vid,c['start'],c['end'],c['score'],now,c.get('peak'),c.get('rank'),vid,c['end'],c['start']))
+            (vid,c['start'],c['end'],c['score'],now,c.get('peak'),c.get('rank'),mode,vid,c['end'],c['start']))
     return status
 
-def scan(db, settings, finder=discover, extractor=extract):
+def scan(db, settings, finder=discover, extractor=extract, mode='long'):
     counts = {}
-    sources=db.execute("SELECT * FROM sources WHERE enabled=1").fetchall()
+    sources=db.execute("SELECT * FROM sources WHERE enabled=1").fetchall() if mode=='long' else [{'query':q,'id':None} for q in ('смешные короткие видео shorts','мемы приколы shorts','смешные животные shorts','funny unexpected moments shorts')]
     print(f'CF_PROGRESS 0 {len(sources)}',flush=True)
     for i,src in enumerate(sources,1):
         print('CF_STAGE '+json.dumps({'stage':'search','detail':src['query']},ensure_ascii=True),flush=True)
@@ -99,7 +103,7 @@ def scan(db, settings, finder=discover, extractor=extract):
             for j,entry in enumerate(entries,1):
                 if not entry: continue
                 print('CF_STAGE '+json.dumps({'stage':'inspect','detail':f'{src["query"]} · {j}/{len(entries)}'},ensure_ascii=True),flush=True)
-                status = inspect_video(db,entry,settings,extractor)
+                status = inspect_video(db,entry,settings,extractor,mode)
                 counts[status] = counts.get(status,0)+1
                 if status != 'cached': time.sleep(settings['delay'])
             with db:
@@ -109,11 +113,11 @@ def scan(db, settings, finder=discover, extractor=extract):
         print(f'CF_PROGRESS {i} {len(sources)}',flush=True)
     return counts
 
-def claim(db):
+def claim(db,mode='long'):
     db.execute("BEGIN IMMEDIATE")
     try:
         row = db.execute("""SELECT c.*,v.url FROM clips c JOIN videos v ON v.id=c.video_id
-        WHERE c.status='pending' ORDER BY coalesce(c.rank,c.score) DESC,c.id LIMIT 1""").fetchone()
+        WHERE c.status='pending' AND c.mode=? ORDER BY coalesce(c.rank,c.score) DESC,c.id LIMIT 1""",(mode,)).fetchone()
         if row:
             db.execute("UPDATE clips SET status='running',attempts=attempts+1,updated=? WHERE id=?", (int(time.time()),row['id']))
         db.commit()
@@ -122,8 +126,8 @@ def claim(db):
         db.rollback()
         raise
 
-def process(db, out, banner=None, campaigns=None):
-    row = claim(db)
+def process(db, out, banner=None, campaigns=None, mode='long'):
+    row = claim(db,mode)
     if row is None: return False
     out.mkdir(parents=True,exist_ok=True)
     raw = out / f"raw_{row['id']}.mp4"
@@ -139,9 +143,16 @@ def process(db, out, banner=None, campaigns=None):
             prune_cache(cache,exclude=row['video_id'])
             source=cached_source(row['url'],row['video_id'],cache)
             peak=row['peak'] if row['peak'] is not None else row['start']+(row['end']-row['start'])*.4
-            a,b,method=refine(source,row['start'],row['end'],peak)
+            if mode=='short':
+                from source_media import probe
+                a,b,method=0,probe(source),'whole'
+                if not 5<=b<=61: raise ValueError('Downloaded source outside short duration range')
+            else: a,b,method=refine(source,row['start'],row['end'],peak)
             selected=choose(campaigns,b-a) if campaigns else banner
-            render(source,a,b,tmp,selected)
+            if mode=='short':
+                from short_media import render_short
+                render_short(source,b,tmp,selected)
+            else: render(source,a,b,tmp,selected)
         prune_cache(cache)
         print('CF_STAGE '+json.dumps({'stage':'save','detail':f'#{row["id"]}'},ensure_ascii=True),flush=True)
         tmp.replace(dest)
@@ -165,10 +176,11 @@ def main():
     ap.add_argument('--config',type=Path)
     sub=ap.add_subparsers(dest='action',required=True)
     sub.add_parser('add').add_argument('query')
-    sub.add_parser('scan')
+    sub.add_parser('scan').add_argument('--mode',choices=['long','short'],default='long')
     sub.add_parser('status')
     sub.add_parser('retry')
     work=sub.add_parser('work')
+    work.add_argument('--mode',choices=['long','short'],default='long')
     work.add_argument('--limit',type=int,default=10)
     work.add_argument('--out',type=Path,default=Path('output'))
     ads=work.add_mutually_exclusive_group()
@@ -188,13 +200,13 @@ def main():
     try:
         db=connect(args.db)
         if args.action=='add': add_source(db,args.query)
-        elif args.action=='scan': print(json.dumps(scan(db,settings),ensure_ascii=False))
+        elif args.action=='scan': print(json.dumps(scan(db,settings,mode=args.mode),ensure_ascii=False))
         elif args.action=='work':
             before_failed=db.execute("SELECT count(*) FROM clips WHERE status='failed'").fetchone()[0]
-            total=min(args.limit,db.execute("SELECT count(*) FROM clips WHERE status='pending'").fetchone()[0])
+            total=min(args.limit,db.execute("SELECT count(*) FROM clips WHERE status='pending' AND mode=?",(args.mode,)).fetchone()[0])
             print(f'CF_PROGRESS 0 {total}',flush=True)
             for i in range(total):
-                if not process(db,args.out,args.banner,args.campaigns): break
+                if not process(db,args.out,args.banner,args.campaigns,args.mode): break
                 print(f'CF_PROGRESS {i+1} {total}',flush=True)
             failures=db.execute("SELECT count(*) FROM clips WHERE status='failed'").fetchone()[0]-before_failed
             print('CF_STAGE '+json.dumps({'stage':'batch_result','detail':f'{max(0,failures)} failed'},ensure_ascii=True),flush=True)
