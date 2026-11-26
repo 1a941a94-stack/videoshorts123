@@ -1,4 +1,4 @@
-import argparse, json, subprocess, sys
+import argparse, json, subprocess, sys, os, tempfile
 from pathlib import Path
 
 def extract(url):
@@ -22,7 +22,19 @@ def render(source, start, end, output, banner=None):
         vf+='[base];[1:v]scale=1000:260:force_original_aspect_ratio=decrease[ad];[base][ad]overlay=(W-w)/2:H-h-180[v]'
     else: vf+='[v]'
     cmd+=['-filter_complex_threads','1','-filter_complex',vf,'-map','[v]','-map','0:a?','-t',str(end-start),'-c:v','libx264','-threads','2','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart',str(output)]
-    subprocess.run(cmd,check=True)
+    if os.getenv('CLIP_CAPTIONS','0') == '1':
+        from captions import prepare
+        with tempfile.TemporaryDirectory() as folder:
+            prepare(Path(source).resolve(),start,end,folder)
+            # Absolute media paths allow a temporary working directory and simple ASS filename.
+            for i,arg in enumerate(cmd[:-1]):
+                if arg=='-i': cmd[i+1]=str(Path(cmd[i+1]).resolve())
+            cmd[-1]=str(Path(output).resolve())
+            idx=cmd.index('-filter_complex')+1
+            cmd[idx]=cmd[idx].removesuffix('[v]')+'[pre];[pre]ass=captions.ass[v]'
+            subprocess.run(cmd,check=True,cwd=folder)
+    else:
+        subprocess.run(cmd,check=True)
 
 def download(url, clip, target):
     subprocess.run([sys.executable,'-m','yt_dlp','--no-playlist','--download-sections',f"*{clip['start']}-{clip['end']}",'--force-keyframes-at-cuts','-f','bv*[height<=1080]+ba/b[height<=1080]','--merge-output-format','mp4','--remux-video','mp4','-o',str(target),url],check=True)
