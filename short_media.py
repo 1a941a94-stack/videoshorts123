@@ -68,7 +68,11 @@ def render_short(source,duration,output,banner=None,*,template=None,background_p
     vf+=f";[bg][fg]overlay=(W-w)/2+({spec['x']}):(H-h)/2+({spec['y']}):shortest=1"
     if banner:
         from banners import Banner,media_input
+        ad_layout=spec.get('ad_layout')
         spec=banner if isinstance(banner,Banner) else Banner(Path(banner))
+        if ad_layout:
+            from dataclasses import replace
+            spec=replace(spec,position='center',margin=0,**ad_layout)
         cmd+=media_input(spec.path)
         vf+=spec.filter(duration).replace('[1:v]',f'[{ad_index}:v]')
     else: vf+='[v]'
