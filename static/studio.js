@@ -1,7 +1,7 @@
 (() => {
 const f=document.getElementById('template-form'),p=document.getElementById('template-preview'),m=document.getElementById('preview-mask'),v=document.getElementById('studio-source');
 if(!f||!v)return;
-const groups={video:['layout','size','x','y','border','border_color','fit','auto_crop','preview_source'],background:['color','background'],ad:['preview_campaign','ad_override','ad_width','ad_height','ad_x','ad_y','ad_opacity','ad_start','ad_end'],captions:['preview_captions','sub_size','sub_margin','sub_font','sub_color','sub_highlight','sub_outline_color','sub_outline','sub_shadow','sub_words','sub_alignment','sub_karaoke']};
+const groups={video:['layout','size','x','y','border','border_color','fit','auto_crop','source_zoom','source_pan_x','source_pan_y','preview_source'],background:['color','background'],ad:['preview_campaign','ad_override','ad_width','ad_height','ad_x','ad_y','ad_opacity','ad_start','ad_end'],captions:['preview_captions','sub_size','sub_margin','sub_font','sub_color','sub_highlight','sub_outline_color','sub_outline','sub_shadow','sub_words','sub_alignment','sub_karaoke']};
 function layer(key){document.querySelectorAll('[data-layer]').forEach(b=>b.classList.toggle('active',b.dataset.layer===key));for(const l of f.querySelectorAll('label')){const input=l.querySelector('[name]');l.hidden=!!input&&input.name!=='name'&&key!=='all'&&!groups[key].includes(input.name);}}
 document.querySelectorAll('[data-layer]').forEach(b=>b.addEventListener('click',()=>layer(b.dataset.layer)));
 layer('video');
@@ -15,11 +15,27 @@ const ad=document.getElementById('studio-ad'),img=document.getElementById('studi
 const field=k=>f.elements[k],num=k=>Number(field(k).value);
 function campaign(){const opt=field('preview_campaign').selectedOptions[0];return opt?.dataset.spec?JSON.parse(opt.dataset.spec):null;}
 function layout(){const c=campaign();if(field('ad_override').value==='1')return Object.fromEntries(['width','height','x','y','opacity'].map(k=>[k,num('ad_'+k)]));if(!c)return null;return {...c,x:c.x||0,y:({top:c.margin+c.height/2-960,center:0,bottom:960-c.margin-c.height/2}[c.position])+(c.y||0)};}
+const seek=document.getElementById('studio-seek'),clock=document.getElementById('studio-time'),track=document.getElementById('studio-ad-track');
+const duration=()=>Number.isFinite(v.duration)&&v.duration>0?v.duration:5;
+const time=()=>v.hasAttribute('src')?v.currentTime:Number(seek.value);
+function timing(){const c=campaign();return field('ad_override').value==='1'?[num('ad_start'),field('ad_end').value===''?duration():num('ad_end')]:[Number(c?.start??0),Number(c?.end??duration())];}
+function drawTimeline(){const d=duration(),t=time(),[a,b]=timing();seek.max=d;seek.value=t;clock.textContent=t.toFixed(1)+' / '+d.toFixed(1)+' с';track.style.left=Math.min(100,100*a/d)+'%';track.style.width=Math.max(0,Math.min(100,100*b/d)-Math.min(100,100*a/d))+'%';track.hidden=!campaign();ad.hidden=!campaign()||t<a||t>=b;}
+function override(){if(field('ad_override').value==='1')return true;const a=layout(),c=campaign();if(!a||!c)return false;for(const k of ['width','height','x','y'])field('ad_'+k).value=Math.round(a[k]);field('ad_opacity').value=a.opacity??1;field('ad_start').value=c.start??0;field('ad_end').value=c.end??'';field('ad_override').value='1';return true;}
+document.getElementById('studio-safe-toggle').addEventListener('change',e=>document.getElementById('studio-safe').hidden=!e.target.checked);
+document.getElementById('studio-play').addEventListener('click',()=>{if(!v.hasAttribute('src'))return;if(v.paused)v.play().catch(()=>{});else v.pause();});
+seek.addEventListener('input',()=>{if(v.hasAttribute('src')&&Number.isFinite(v.duration)){v.pause();v.currentTime=Number(seek.value);}drawTimeline();});
+for(const ev of ['loadedmetadata','timeupdate','seeked','emptied'])v.addEventListener(ev,drawTimeline);
+document.getElementById('studio-in').addEventListener('click',()=>{if(!override())return;const t=Number(time().toFixed(1));if(field('ad_end').value!==''&&num('ad_end')<=t)field('ad_end').value='';field('ad_start').value=t;drawLayers();});
+document.getElementById('studio-out').addEventListener('click',()=>{if(!override())return;field('ad_end').value=Math.max(num('ad_start')+.1,Number(time().toFixed(1))).toFixed(1);drawLayers();});
 function drawLayers(){
+ const zoom=num('source_zoom')/100;
+ v.style.transformOrigin='center';
+ v.style.transform='translate('+(-num('source_pan_x')*(zoom-1)/2)+'%,'+(-num('source_pan_y')*(zoom-1)/2)+'%) scale('+zoom+')';
+
  const c=campaign(),a=layout();ad.hidden=!c||!a;
  if(c&&a){const src='/campaigns/'+field('preview_campaign').selectedOptions[0].dataset.index+'/media',motion=/\.(mp4|webm|mov)$/i.test(c.path);img.hidden=motion;movie.hidden=!motion;if(motion){if(movie.getAttribute('src')!==src){movie.src=src;movie.play().catch(()=>{});}}else{movie.pause();if(img.getAttribute('src')!==src)img.src=src;}
  Object.assign(ad.style,{width:a.width/1080*100+'%',height:a.height/1920*100+'%',left:50+a.x/1080*100+'%',top:50+a.y/1920*100+'%',opacity:a.opacity??1});}else movie.pause();
- caption.hidden=!field('preview_captions').checked;caption.style.color=field('sub_color').value;caption.style.fontFamily=field('sub_font').value;caption.style.fontSize=num('sub_size')*p.clientWidth/1080+'px';caption.style.textShadow='0 1px 3px '+field('sub_outline_color').value;caption.style.top=({2:100-num('sub_margin')/1920*100,5:50,8:num('sub_margin')/1920*100}[num('sub_alignment')])+'%';
+ caption.hidden=!field('preview_captions').checked;caption.style.color=field('sub_color').value;caption.style.fontFamily=field('sub_font').value;caption.style.fontSize=num('sub_size')*p.clientWidth/1080+'px';caption.style.textShadow='0 1px 3px '+field('sub_outline_color').value;caption.style.top=({2:100-num('sub_margin')/1920*100,5:50,8:num('sub_margin')/1920*100}[num('sub_alignment')])+'%';drawTimeline();
 }
 let adDrag=null;
 ad.addEventListener('pointerdown',e=>{if(e.button!==0)return;e.preventDefault();layer('ad');const a=layout();if(!a)return;for(const k of ['width','height','x','y'])field('ad_'+k).value=Math.round(a[k]);field('ad_opacity').value=a.opacity??1;if(field('ad_override').value!=='1'){const c=campaign();field('ad_start').value=c.start??0;field('ad_end').value=c.end??'';}field('ad_override').value='1';ad.setPointerCapture(e.pointerId);adDrag={...a,px:e.clientX,py:e.clientY,resize:e.target.id==='studio-ad-grip'};});
