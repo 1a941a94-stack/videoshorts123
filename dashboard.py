@@ -632,6 +632,16 @@ def create_app(root=ROOT):
         if not path.is_relative_to(assets.resolve()) or not path.is_file(): abort(404)
         return send_file(path,conditional=True)
 
+    @app.post('/campaigns/<int:cid>/archive')
+    def archive_campaign(cid):
+        with lock:
+            data=read_json(campaigns,{'campaigns':[]})
+            if not 0<=cid<len(data['campaigns']): abort(404)
+            row=data['campaigns'][cid]
+            row.update(enabled=False,archived=True)
+            save_json(campaigns,data)
+        return redirect(url_for('index')+'#campaigns')
+
     @app.post('/campaigns/<int:cid>/toggle')
     def toggle_campaign(cid):
         with lock:
@@ -639,6 +649,7 @@ def create_app(root=ROOT):
             if not 0<=cid<len(data['campaigns']): abort(404)
             row=data['campaigns'][cid]
             row['enabled']=not row.get('enabled',True)
+            if row['enabled']: row['archived']=False
             save_json(campaigns,data)
         return redirect(url_for('index')+'#campaigns')
 
