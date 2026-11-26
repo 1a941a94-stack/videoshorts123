@@ -29,7 +29,11 @@ def init(db):
     return db
 
 def add_account(db,name,platform,destination,token_env,topic='',daily_limit=2,interval_seconds=3600):
-    if platform not in ('telegram','youtube','instagram','tiktok','vk'): raise ValueError('Unknown platform')
+    if platform not in ('telegram','youtube','instagram','instagram_browser','tiktok','vk'): raise ValueError('Unknown platform')
+    if platform=='instagram_browser':
+        from instagram_browser import username
+        destination=username(destination)
+        token_env='LOCAL_BROWSER_SESSION'
     if not re.fullmatch(r'[A-Z][A-Z0-9_]{2,80}',token_env): raise ValueError('Expected environment variable name, not token')
     if not name.strip() or not destination.strip() or not 1<=daily_limit<=10 or interval_seconds<60: raise ValueError('Invalid account settings')
     with db:
@@ -47,7 +51,7 @@ def sync_ready(db,now=None):
     now=int(time.time()) if now is None else int(now)
     count=0
     with db:
-        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform IN ('telegram','instagram') AND production_profile IS NOT NULL").fetchall()
+        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform IN ('telegram','instagram','instagram_browser') AND production_profile IS NOT NULL").fetchall()
         for a in accounts:
             last=db.execute("SELECT max(scheduled) FROM publications WHERE account_id=? AND status IN ('approved','sending','sent','uncertain')",(a['id'],)).fetchone()[0]
             slot=max(now,(last or 0)+a['interval_seconds'])
@@ -65,7 +69,7 @@ def configure_auto(db,account,profile,caption,interval,enabled):
     if enabled and not profile: raise ValueError('Choose a production profile')
     with db:
         row=db.execute('SELECT platform FROM accounts WHERE id=?',(account,)).fetchone()
-        if not row or (enabled and row['platform'] not in ('telegram','instagram')): raise ValueError('Unsupported automatic publication platform')
+        if not row or (enabled and row['platform'] not in ('telegram','instagram','instagram_browser')): raise ValueError('Unsupported automatic publication platform')
         db.execute('UPDATE accounts SET production_profile=?,caption_template=?,interval_seconds=?,auto_queue=? WHERE id=?',(profile or None,caption,interval,int(enabled),account))
 
 def approve(db,pid):
@@ -78,8 +82,8 @@ def claim(db,now):
         row=db.execute("""SELECT p.*,a.platform,a.destination,a.token_env,c.output FROM publications p
         JOIN accounts a ON a.id=p.account_id JOIN clips c ON c.id=p.clip_id
         WHERE p.status='approved' AND a.enabled=1 AND p.scheduled<=? AND c.status='done'
-        AND a.platform IN ('telegram','instagram')
-        AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sending','uncertain'))
+        AND a.platform IN ('telegram','instagram','instagram_browser')
+        AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sending','uncertain','browser_blocked'))
         AND (SELECT count(*) FROM publications q WHERE q.account_id=a.id AND q.status='sent' AND q.updated>?)<a.daily_limit
         AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status='sent' AND q.updated>?-a.interval_seconds)
         ORDER BY p.scheduled,p.id LIMIT 1""",(now,now-86400,now)).fetchone()
@@ -110,14 +114,21 @@ def send_one(db,root,sender=None):
     try:
         path=(root/row['output']).resolve()
         token=os.environ.get(row['token_env'])
-        if not token or not path.is_relative_to((root/'output').resolve()) or not path.is_file():
+        if (not token and row['platform']!='instagram_browser') or not path.is_relative_to((root/'output').resolve()) or not path.is_file():
             with db: db.execute("UPDATE publications SET status='blocked',error='Missing credential or output',updated=? WHERE id=?",(int(time.time()),row['id']))
             return True
-        if sender is None:
-            if row['platform']=='instagram':
-                from instagram_publish import publish as sender
-            else: sender=telegram
-        remote,link=sender(row,path,token)
+        if sender is None and row['platform']=='instagram_browser':
+            from instagram_browser import publish,BrowserBlocked
+            try: remote,link=publish(root,row,path)
+            except BrowserBlocked as exc:
+                with db: db.execute("UPDATE publications SET status='browser_blocked',error=?,updated=? WHERE id=?",(str(exc),int(time.time()),row['id']))
+                return True
+        else:
+            if sender is None:
+                if row['platform']=='instagram':
+                    from instagram_publish import publish as sender
+                else: sender=telegram
+            remote,link=sender(row,path,token)
         with db: db.execute("UPDATE publications SET status='sent',remote_id=?,url=?,updated=?,error=NULL WHERE id=?",(remote,link,int(time.time()),row['id']))
     except Exception:
         # A network failure may occur after remote acceptance: never blindly resend.
