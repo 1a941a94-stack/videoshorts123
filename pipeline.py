@@ -145,7 +145,12 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
         cache.mkdir(parents=True,exist_ok=True)
         with FileLock(str(cache/(row['video_id']+'.lock')),timeout=1800):
             prune_cache(cache,exclude=row['video_id'])
-            source=cached_source(row['url'],row['video_id'],cache)
+            if row['video_id'].startswith('tg_'):
+                from telegram_source import retrieve
+                source=cache/(row['video_id']+'.mp4')
+                # Recheck access and forwarding restrictions on each retrieval.
+                retrieve(Path(db.execute('PRAGMA database_list').fetchone()[2]).resolve().parent,row['video_id'],row['url'],source)
+            else: source=cached_source(row['url'],row['video_id'],cache)
             peak=row['peak'] if row['peak'] is not None else row['start']+(row['end']-row['start'])*.4
             if mode=='short':
                 from source_media import probe
@@ -183,6 +188,10 @@ def main():
     sub.add_parser('scan').add_argument('--mode',choices=['long','short'],default='long')
     imp=sub.add_parser('import-short')
     imp.add_argument('video_id')
+    tg=sub.add_parser('scan-telegram')
+    tg.add_argument('channel')
+    tg.add_argument('--limit',type=int,default=100)
+    tg.add_argument('--min-views',type=int,default=1000)
     sub.add_parser('status')
     sub.add_parser('retry')
     work=sub.add_parser('work')
@@ -210,6 +219,11 @@ def main():
             result=inspect_video(db,{'id':args.video_id},dict(settings,min_views=0),mode='short')
             print('CF_STAGE '+json.dumps({'stage':'import_short','detail':result}),flush=True)
             if result!='ready': raise SystemExit(1)
+            print('CF_PROGRESS 1 1',flush=True)
+        elif args.action=='scan-telegram':
+            from telegram_source import scan_channel
+            print('CF_PROGRESS 0 1',flush=True)
+            scan_channel(db,Path(args.db).resolve().parent,args.channel,args.limit,args.min_views)
             print('CF_PROGRESS 1 1',flush=True)
         elif args.action=='scan': print(json.dumps(scan(db,settings,mode=args.mode),ensure_ascii=False))
         elif args.action=='work':
