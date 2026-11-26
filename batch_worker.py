@@ -36,7 +36,7 @@ def run(db,root,out,run_id,settings):
             if shutil.disk_usage(out).free<3*1024**3:
                 set_status(db,run_id,'paused','Insufficient disk space')
                 return
-            row=claim(db,mode,run_id)
+            row=claim(db,mode,run_id,config.get('only_ids'))
             if row is None:
                 if config.get('auto_search') and scanned<max_scans:
                     scanned+=1
@@ -58,7 +58,21 @@ def run(db,root,out,run_id,settings):
                 with db:
                     db.execute("UPDATE clips SET status='failed',error=?,updated=? WHERE id=?",(str(exc)[:1000],int(time.time()),cid))
             state=db.execute('SELECT status FROM clips WHERE id=?',(cid,)).fetchone()[0]
+            from queue_control import explain
+            current=db.execute('SELECT * FROM clips WHERE id=?',(cid,)).fetchone()
+            issue=explain(current)
+            if state=='failed' and issue['kind']=='temporary' and current['attempts']<3:
+                with db:
+                    db.execute("UPDATE clips SET status='pending' WHERE id=?",(cid,))
+                record(db,run_id,cid,'pending')
+                for _ in range(5*current['attempts']):
+                    if stop.exists(): break
+                    time.sleep(1)
+                continue
             record(db,run_id,cid,state)
+            if issue['kind']=='system' and state in ('failed','ad_review'):
+                set_status(db,run_id,'paused',issue['title'])
+                return
             stage('batch_result',f'#{cid}: {state}')
     except BaseException as exc:
         set_status(db,run_id,'failed',str(exc)[:500])
