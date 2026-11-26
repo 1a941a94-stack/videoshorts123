@@ -249,7 +249,10 @@ def create_app(root=ROOT):
                 banner=choose(campaigns,duration,campaign=name) if name else None
                 render_short(source,duration,result,banner,template=spec,background_path=background,captions=False)
                 verify(result,duration,any(s.get('codec_type')=='audio' for s in streams))
-                return send_file(BytesIO(result.read_bytes()),mimetype='video/mp4',download_name='preview.mp4',max_age=0)
+                from banners import overlap_warning
+                response=send_file(BytesIO(result.read_bytes()),mimetype='video/mp4',download_name='preview.mp4',max_age=0)
+                response.headers['X-Banner-Overlap']='1' if overlap_warning(banner,spec) else '0'
+                return response
         except (ValueError,KeyError,OSError,subprocess.SubprocessError):
             abort(400,'Preview failed: check video, template and campaign timing')
         finally: preview_lock.release()
@@ -333,7 +336,8 @@ def create_app(root=ROOT):
             elif cv2.imread(str(path)) is None: raise ValueError('Invalid image')
             spec=Banner(path,name=name,width=int(request.form['width']),height=int(request.form['height']),
                 position=request.form['position'],margin=int(request.form['margin']),opacity=float(request.form['opacity']),
-                start=float(request.form['start']),end=float(request.form['end']) if request.form.get('end') else None)
+                start=float(request.form['start']),end=float(request.form['end']) if request.form.get('end') else None,
+                x=int(request.form.get('x',0)),y=int(request.form.get('y',0)))
             weight=float(request.form['weight'])
             import math
             if not math.isfinite(weight) or not 0<weight<=100: raise ValueError('Invalid weight')
@@ -347,6 +351,35 @@ def create_app(root=ROOT):
             path.unlink(missing_ok=True)
             abort(400,str(exc))
         return redirect(url_for('index')+'#campaigns')
+
+    @app.post('/campaigns/<int:cid>/edit')
+    def edit_campaign(cid):
+        import math
+        with lock:
+            data=read_json(campaigns,{'campaigns':[]})
+            if not 0<=cid<len(data['campaigns']): abort(404)
+            row=data['campaigns'][cid]
+            try:
+                path=(root/row['path']).resolve()
+                if not path.is_relative_to(assets.resolve()): raise ValueError('Invalid asset')
+                spec=Banner(path,name=row['name'],width=int(request.form['width']),height=int(request.form['height']),
+                    position=request.form['position'],margin=int(request.form['margin']),opacity=float(request.form['opacity']),
+                    start=float(request.form['start']),end=float(request.form['end']) if request.form.get('end') else None,
+                    x=int(request.form.get('x',0)),y=int(request.form.get('y',0)))
+                weight=float(request.form['weight'])
+                if not math.isfinite(weight) or not 0<weight<=100: raise ValueError('Invalid weight')
+                row.update({k:v for k,v in vars(spec).items() if k!='path'},weight=weight)
+                save_json(campaigns,data)
+            except (ValueError,KeyError,OSError) as exc: abort(400,str(exc))
+        return redirect(url_for('index')+'#campaigns')
+
+    @app.get('/campaigns/<int:cid>/media')
+    def campaign_media(cid):
+        data=read_json(campaigns,{'campaigns':[]})
+        if not 0<=cid<len(data['campaigns']): abort(404)
+        path=(root/data['campaigns'][cid]['path']).resolve()
+        if not path.is_relative_to(assets.resolve()) or not path.is_file(): abort(404)
+        return send_file(path,conditional=True)
 
     @app.post('/campaigns/<int:cid>/toggle')
     def toggle_campaign(cid):
