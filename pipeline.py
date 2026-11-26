@@ -181,6 +181,8 @@ def main():
     sub=ap.add_subparsers(dest='action',required=True)
     sub.add_parser('add').add_argument('query')
     sub.add_parser('scan').add_argument('--mode',choices=['long','short'],default='long')
+    imp=sub.add_parser('import-short')
+    imp.add_argument('video_id')
     sub.add_parser('status')
     sub.add_parser('retry')
     work=sub.add_parser('work')
@@ -204,6 +206,11 @@ def main():
     try:
         db=connect(args.db)
         if args.action=='add': add_source(db,args.query)
+        elif args.action=='import-short':
+            result=inspect_video(db,{'id':args.video_id},dict(settings,min_views=0),mode='short')
+            print('CF_STAGE '+json.dumps({'stage':'import_short','detail':result}),flush=True)
+            if result!='ready': raise SystemExit(1)
+            print('CF_PROGRESS 1 1',flush=True)
         elif args.action=='scan': print(json.dumps(scan(db,settings,mode=args.mode),ensure_ascii=False))
         elif args.action=='work':
             before_failed=db.execute("SELECT count(*) FROM clips WHERE status='failed'").fetchone()[0]
