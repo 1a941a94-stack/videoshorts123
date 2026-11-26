@@ -158,7 +158,10 @@ def process(db, out, banner=None, campaigns=None, mode='long'):
         cache.mkdir(parents=True,exist_ok=True)
         with FileLock(str(cache/(row['video_id']+'.lock')),timeout=1800):
             prune_cache(cache,exclude=row['video_id'])
-            if row['video_id'].startswith('tg_'):
+            if row['video_id'].startswith('local_'):
+                from local_import import resolve_source
+                source=resolve_source(Path(db.execute('PRAGMA database_list').fetchone()[2]).resolve().parent,row['video_id'],row['url'])
+            elif row['video_id'].startswith('tg_'):
                 from telegram_source import retrieve
                 source=cache/(row['video_id']+'.mp4')
                 # Recheck access and forwarding restrictions on each retrieval.
@@ -262,6 +265,8 @@ def main():
     factory.add_argument('--out',type=Path,default=Path('output'))
     factory.add_argument('--continuous',action='store_true')
     factory.add_argument('--replenish',action='store_true')
+    local=sub.add_parser('import-local')
+    local.add_argument('folder',type=Path)
     sub.add_parser('status')
     sub.add_parser('retry')
     work=sub.add_parser('work')
@@ -284,7 +289,12 @@ def main():
     db=None
     try:
         db=connect(args.db)
-        if args.action=='add': add_source(db,args.query)
+        if args.action=='import-local':
+            from local_import import import_folder
+            results=import_folder(db,Path(args.db).resolve().parent,args.folder)
+            for name,status in results: print(name,status,flush=True)
+            print(json.dumps({'imported':sum(s=='ready' for _,s in results),'duplicates':sum(s=='duplicate' for _,s in results),'errors':sum(s.startswith('error:') for _,s in results)}),flush=True)
+        elif args.action=='add': add_source(db,args.query)
         elif args.action=='import-short':
             result=inspect_video(db,{'id':args.video_id},dict(settings,min_views=0),mode='short')
             print('CF_STAGE '+json.dumps({'stage':'import_short','detail':result}),flush=True)
