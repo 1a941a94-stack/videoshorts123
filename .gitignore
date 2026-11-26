@@ -9,3 +9,8 @@ cookies*.txt
 *.sqlite3
 *.sqlite3-wal
 *.sqlite3-shm
+
+assets/
+settings.json
+campaigns.json
+dashboard-job.log
