@@ -43,7 +43,39 @@ def render(source, start, end, output, banner=None):
         subprocess.run(cmd,check=True)
 
 def download(url, clip, target):
-    subprocess.run([sys.executable,'-m','yt_dlp','--no-playlist','--newline','--download-sections',f"*{clip['start']}-{clip['end']}",'--force-keyframes-at-cuts','-f','bv*[height<=1080]+ba/b[height<=1080]','--merge-output-format','mp4','--remux-video','mp4','-o',str(target),url],check=True)
+    import shutil
+    target=Path(target).resolve()
+    base=[sys.executable,'-m','yt_dlp','--no-playlist','--newline',
+          '--socket-timeout','25','--retries','2','--fragment-retries','2']
+    fmt='bv*[height<=1080]+ba/b[height<=1080]'
+    with tempfile.TemporaryDirectory(prefix='clip-download-',dir=target.parent) as folder:
+        folder=Path(folder)
+        section=folder/'section.mp4'
+        try:
+            subprocess.run(base+['--download-sections',f"*{clip['start']}-{clip['end']}",
+                '--force-keyframes-at-cuts','-f',fmt,'--merge-output-format','mp4',
+                '--remux-video','mp4','-o',str(section),url],check=True,timeout=300)
+            if not section.is_file(): raise RuntimeError('Missing downloaded section')
+            section.replace(target)
+            return
+        except (subprocess.CalledProcessError,subprocess.TimeoutExpired,RuntimeError):
+            print('CF_STAGE '+json.dumps({'stage':'fallback','detail':'Native download, then local cut'}),flush=True)
+        if shutil.disk_usage(folder).free < 3*1024**3:
+            raise RuntimeError('At least 3 GiB of free space required for full-source fallback')
+        full=folder/'full.mp4'
+        try:
+            subprocess.run(base+['--downloader','native','--max-filesize','1G',
+                '-f','bv*[height<=720][ext=mp4]+ba[ext=m4a]/b[height<=720][ext=mp4]',
+                '--merge-output-format','mp4','--remux-video','mp4','-o',str(full),url],
+                check=True,timeout=900)
+        except (subprocess.CalledProcessError,subprocess.TimeoutExpired) as exc:
+            raise RuntimeError('Both section and native download failed; inspect download log and network connection') from exc
+        if not full.is_file(): raise RuntimeError('Native downloader did not produce a video')
+        print('CF_STAGE '+json.dumps({'stage':'localcut','detail':'Local FFmpeg'}),flush=True)
+        subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-y','-ss',str(clip['start']),
+            '-i',str(full),'-t',str(clip['end']-clip['start']),'-map','0:v:0','-map','0:a?',
+            '-c:v','libx264','-preset','veryfast','-threads','2','-c:a','aac',str(target)],
+            check=True,timeout=300)
 
 def main():
     ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='action',required=True)
