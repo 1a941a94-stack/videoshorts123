@@ -15,7 +15,7 @@ def candidate(info,min_views=10000):
     score=min(1,math.log10(max(1,views))/7)
     return [dict(start=0,end=duration,score=score,rank=score,peak=None)]
 
-def render_short(source,duration,output,banner=None,*,template=None,background_path=None,captions=None,normalize=None,caption_style=None,words=None):
+def render_short(source,duration,output,banner=None,*,template=None,background_path=None,captions=None,normalize=None,caption_style=None,words=None,encoder=None):
     source=Path(source).resolve()
     output=Path(output).resolve()
     import json
@@ -83,4 +83,4 @@ def render_short(source,duration,output,banner=None,*,template=None,background_p
         cmd+=['-filter_complex_threads','1','-filter_complex',vf,'-map','[v]','-map','0:a?',
               '-t',str(duration)]
         from video_encoder import encode
-        encode(cmd,['-c:a','aac',*audio,'-movflags','+faststart'],output,folder,report=lambda msg:stage('render',msg))
+        return encode(cmd,['-c:a','aac',*audio,'-movflags','+faststart'],output,folder,mode=encoder,report=lambda msg:stage('render',msg))
