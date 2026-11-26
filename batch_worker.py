@@ -39,6 +39,7 @@ def run(db,root,out,run_id,settings):
                 return
             row=claim(db,mode,run_id,config.get('only_ids'))
             if row is None:
+                replenished=False
                 while config.get('auto_search') and scanned<max_scans and not stop.exists():
                     scanned+=1
                     before=db.execute("SELECT count(*) FROM clips WHERE mode=? AND status='pending'",(mode,)).fetchone()[0]
@@ -48,12 +49,13 @@ def run(db,root,out,run_id,settings):
                         try: scan_library(db,root)
                         except Exception as exc: stage('telegram_scan',str(exc)[:300])
                     after=db.execute("SELECT count(*) FROM clips WHERE mode=? AND status='pending'",(mode,)).fetchone()[0]
-                    if after>before: break
+                    if after>before:
+                        replenished=True
+                        break
                 if stop.exists():
                     set_status(db,run_id,'paused','Stopped during discovery')
                     return
-                if config.get('auto_search') and 'after' in locals() and after>before:
-                    before=after
+                if replenished:
                     continue
                 set_status(db,run_id,'exhausted','No more eligible queued candidates')
                 return
