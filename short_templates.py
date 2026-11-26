@@ -3,7 +3,7 @@ import json
 import re
 from pathlib import Path
 
-DEFAULT=dict(layout='circle',size=960,x=0,y=80,color='#172536',background='',border=0,border_color='#ffffff',fit='contain')
+DEFAULT=dict(layout='circle',size=960,x=0,y=80,color='#172536',background='',border=0,border_color='#ffffff',fit='cover',auto_crop=True)
 
 def validate(data):
     out={**DEFAULT,**{k:data[k] for k in DEFAULT if k in data}}
@@ -17,6 +17,10 @@ def validate(data):
     for k in ('color','border_color'):
         if not re.fullmatch(r'#[0-9a-fA-F]{6}',out[k]): raise ValueError('Invalid color')
     if out['background'] and not re.fullmatch(r'[a-f0-9]{24}\.(?:jpg|mp4|webm|mov|gif)',out['background']): raise ValueError('Invalid background ID')
+    out['auto_crop']=out['auto_crop'] in (True,1,'1','true','on')
+    from caption_style import validate as validate_style,from_form
+    if 'caption_style' in data: out['caption_style']=validate_style(data['caption_style'])
+    elif any(k.startswith('sub_') for k in data): out['caption_style']=from_form(data)
     return out
 
 def load(root):
