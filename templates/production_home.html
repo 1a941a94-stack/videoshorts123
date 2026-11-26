@@ -1,8 +1,8 @@
 <section id="production-runs" class="production-home">
 <div class="home-kpis">
  <article><small>Готово сегодня</small><strong id="home-today">{{today}}</strong><a href="/?clip_status=done#clips">Открыть видео</a></article>
- <article><small>В очереди</small><strong id="home-pending">{{stats.get('pending',0)}}</strong><a href="/?clip_status=pending#clips">Посмотреть задачи</a></article>
- <article><small>Требуют внимания</small><strong id="home-attention">{{stats.get('failed',0)+stats.get('ad_review',0)}}</strong><a href="/?clip_status=failed#clips">Ошибки монтажа</a> · <a href="/?clip_status=ad_review#clips">Проверка рекламы</a></article>
+ <article><small>В очереди</small><strong id="home-pending">{{stats.get('pending',0)}}</strong><a href="#queue">Посмотреть задачи</a></article>
+ <article><small>Требуют внимания</small><strong id="home-attention">{{stats.get('failed',0)+stats.get('ad_review',0)}}</strong><a href="#queue">Ошибки монтажа</a> · <a href="#queue">Проверка рекламы</a></article>
 </div>
 <div class="home-work">
  <div class="home-panel">
@@ -25,14 +25,14 @@
   <p id="batch-name" class="muted"></p><div class="batch-numbers"><strong id="batch-done">0</strong><span id="batch-goal">/ 0</span></div>
   <div class="batch-track"><div id="batch-fill"></div></div>
   <p id="batch-detail" class="muted">Запустите производство для получения результатов.</p>
-  <div class="batch-actions">
+  <div class="batch-actions"><a id="batch-results" class="button secondary" hidden>Результаты партии</a>
    <form id="batch-pause" method="post" hidden><input type="hidden" name="csrf" value="{{csrf}}"><button class="secondary">Пауза после ролика</button></form>
    <form id="batch-resume" method="post" hidden><input type="hidden" name="csrf" value="{{csrf}}"><button>Продолжить</button></form>
   </div>
  </div>
 </div>
 <div class="home-panel"><div class="heading"><h3>Последние готовые видео</h3><a href="/?clip_status=done#clips">Все видео →</a></div>
-<div id="home-recent" class="home-gallery">{% for c in recent %}<article class="home-clip"><a href="/clips/{{c.id}}/video" target="_blank" rel="noopener">{% if c.cover %}<img src="/clips/{{c.id}}/cover" alt="" loading="lazy">{% else %}<span class="clip-placeholder">▶</span>{% endif %}</a><strong>{{c.title or ('Ролик #'~c.id)}}</strong><div><a href="/clips/{{c.id}}/video" target="_blank" rel="noopener">Смотреть</a><a href="/clips/{{c.id}}/video" download="clip_{{c.id}}.mp4">Скачать</a></div></article>{% else %}<p class="muted">Здесь появятся видео сразу после монтажа.</p>{% endfor %}</div>
+<div id="home-recent" class="home-gallery">{% for c in recent %}<article class="home-clip"><a href="/clips/{{c.id}}/video" data-open-clip="{{c.id}}">{% if c.cover %}<img src="/clips/{{c.id}}/cover" alt="" loading="lazy">{% else %}<span class="clip-placeholder">▶</span>{% endif %}</a><strong>{{c.title or ('Ролик #'~c.id)}}</strong><div><a href="/clips/{{c.id}}/video" target="_blank" rel="noopener">Смотреть</a><a href="/clips/{{c.id}}/video" download="clip_{{c.id}}.mp4">Скачать</a></div></article>{% else %}<p class="muted">Здесь появятся видео сразу после монтажа.</p>{% endfor %}</div>
 </div>
 </section>
 <section id="run-configurations"><div class="heading"><h3>Конфигурации производства</h3><a href="#production-runs">К производству</a></div>
