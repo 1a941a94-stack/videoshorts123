@@ -18,24 +18,37 @@ def candidate(info,min_views=10000):
 def render_short(source,duration,output,banner=None):
     source=Path(source).resolve()
     output=Path(output).resolve()
-    layout=os.getenv('CLIP_SHORT_LAYOUT','circle')
+    import json
+    from short_templates import validate
+    spec=validate(json.loads(os.getenv('CLIP_SHORT_TEMPLATE','{}')) or {'layout':os.getenv('CLIP_SHORT_LAYOUT','circle'),'size':960 if os.getenv('CLIP_SHORT_LAYOUT','circle')=='circle' else 1000})
+    layout=spec['layout']
+    size=spec['size']; border=spec['border']; half=size/2
+    fit=spec['fit']; color=spec['color'].replace('#','0x'); border_color=spec['border_color'].replace('#','0x')
     if layout not in ('circle','rectangle'): raise ValueError('Invalid short layout')
     background=os.getenv('CLIP_SHORT_BACKGROUND','')
     cmd=['ffmpeg','-hide_banner','-loglevel','error','-y','-i',str(source)]
-    # Circular mask clips corners; rectangular layout preserves the entire image.
-    if layout=='circle':
-        vf="[0:v]scale=960:960:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=960:960:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(sqrt((X-480)*(X-480)+(Y-480)*(Y-480)),478),255,0)'[fg]"
+    # The source is contained or cropped into a square; the mask is applied last.
+    if fit=='cover':
+        vf=f"[0:v]scale={size}:{size}:force_original_aspect_ratio=increase,crop={size}:{size},setsar=1"
     else:
-        vf="[0:v]scale=1000:1000:force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1[fg]"
+        vf=f"[0:v]scale={size}:{size}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={size}:{size}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
+    if border:
+        outer=size+2*border
+        vf+=f",pad={outer}:{outer}:{border}:{border}:color={border_color}"
+    else: outer=size
+    if layout=='circle':
+        radius=outer/2
+        vf+=f",format=rgba,geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(lte(sqrt((X-{radius})*(X-{radius})+(Y-{radius})*(Y-{radius})),{radius-1}),255,0)'"
+    vf+='[fg]'
     # Background is optional; otherwise use a dark blue canvas.
     if background:
         cmd+=['-loop','1','-framerate','30','-i',str(Path(background).resolve())]
         vf+=";[1:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[bg]"
         ad_index=2
     else:
-        vf+=";color=c=0x172536:s=1080x1920:r=30[bg]"
+        vf+=f";color=c={color}:s=1080x1920:r=30[bg]"
         ad_index=1
-    vf+=";[bg][fg]overlay=(W-w)/2:(H-h)/2+80:shortest=1"
+    vf+=f";[bg][fg]overlay=(W-w)/2+({spec['x']}):(H-h)/2+({spec['y']}):shortest=1"
     if banner:
         from banners import Banner
         from dataclasses import replace
