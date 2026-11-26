@@ -259,12 +259,16 @@ def create_app(root=ROOT):
 
     @app.post('/jobs/<action>')
     def start_job(action):
-        if action not in ('scan','work','retry','import-short','scan-telegram','scan-telegram-library'): abort(404)
+        if action not in ('scan','work','retry','import-short','scan-telegram','scan-telegram-library','discover-telegram'): abort(404)
         with lock:
             if job['process'] and job['process'].poll() is None: abort(409,'Job already running')
             cmd=[sys.executable,'-u',str(ROOT/'pipeline.py'),'--db',str(dbpath)]
             if config.exists(): cmd+=['--config',str(config)]
             cmd.append(action)
+            if action=='discover-telegram':
+                queries=[q.strip() for q in request.form.get('queries','').splitlines() if q.strip()]
+                if len(queries)>20 or any(len(q)>100 for q in queries): abort(400)
+                for q in queries: cmd.append('--query='+q)
             if action=='scan-telegram-library' and request.form.get('full')=='1': cmd.append('--full')
             if action=='scan-telegram':
                 from telegram_source import channel_name
