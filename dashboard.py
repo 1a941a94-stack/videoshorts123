@@ -91,6 +91,7 @@ def create_app(root=ROOT):
         db=connect(dbpath)
         try:
             sources=db.execute('SELECT * FROM sources ORDER BY id DESC').fetchall()
+            telegram_channels=db.execute('SELECT * FROM telegram_channels ORDER BY name').fetchall()
             videos=db.execute('SELECT * FROM videos ORDER BY checked DESC LIMIT 100').fetchall()
             clips=db.execute('SELECT c.*,v.title,v.url FROM clips c JOIN videos v ON v.id=c.video_id ORDER BY c.id DESC LIMIT 100').fetchall()
             stats=dict(db.execute('SELECT status,count(*) FROM clips GROUP BY status').fetchall())
@@ -105,9 +106,28 @@ def create_app(root=ROOT):
                 with job['log'].open('rb') as fp:
                     fp.seek(max(0,job['log'].stat().st_size-12000))
                     log=fp.read().decode('utf-8','replace')
-        return render_template('dashboard.html',sources=sources,videos=videos,clips=clips,stats=stats,total=total,
+        return render_template('dashboard.html',sources=sources,telegram_channels=telegram_channels,videos=videos,clips=clips,stats=stats,total=total,
             running=running,result=result,log=log,action=job['action'],csrf=session['csrf'],
             campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
+
+    @app.post('/telegram/channels')
+    def telegram_channels_add():
+        from telegram_source import add_channels
+        db=connect(dbpath)
+        try:
+            add_channels(db,request.form.get('channels','').splitlines(),int(request.form.get('history','100')),int(request.form.get('views','1000')))
+        except ValueError as exc: abort(400,str(exc))
+        finally: db.close()
+        return redirect(url_for('index')+'#telegram')
+
+    @app.post('/telegram/channels/<name>/toggle')
+    def telegram_channel_toggle(name):
+        db=connect(dbpath)
+        try:
+            with db:
+                if not db.execute('UPDATE telegram_channels SET enabled=1-enabled WHERE name=?',(name,)).rowcount: abort(404)
+        finally: db.close()
+        return redirect(url_for('index')+'#telegram')
 
     @app.post('/sources')
     def source():
@@ -204,12 +224,13 @@ def create_app(root=ROOT):
 
     @app.post('/jobs/<action>')
     def start_job(action):
-        if action not in ('scan','work','retry','import-short','scan-telegram'): abort(404)
+        if action not in ('scan','work','retry','import-short','scan-telegram','scan-telegram-library'): abort(404)
         with lock:
             if job['process'] and job['process'].poll() is None: abort(409,'Job already running')
             cmd=[sys.executable,'-u',str(ROOT/'pipeline.py'),'--db',str(dbpath)]
             if config.exists(): cmd+=['--config',str(config)]
             cmd.append(action)
+            if action=='scan-telegram-library' and request.form.get('full')=='1': cmd.append('--full')
             if action=='scan-telegram':
                 from telegram_source import channel_name
                 try:
