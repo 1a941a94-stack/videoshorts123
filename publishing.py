@@ -31,6 +31,10 @@ def init(db):
 
 def add_account(db,name,platform,destination,token_env,topic='',daily_limit=2,interval_seconds=3600):
     if platform not in ('telegram','youtube','instagram','instagram_browser','tiktok','vk'): raise ValueError('Unknown platform')
+    if platform=='youtube':
+        from youtube_publish import channel_id
+        destination=channel_id(destination)
+        token_env='LOCAL_YOUTUBE_SESSION'
     if platform=='instagram_browser':
         from instagram_browser import username
         destination=username(destination)
@@ -53,9 +57,9 @@ def sync_ready(db,now=None):
     count=0
     db.execute('BEGIN IMMEDIATE')
     with db:
-        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform IN ('telegram','instagram','instagram_browser') AND production_profile IS NOT NULL").fetchall()
+        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform IN ('telegram','instagram','instagram_browser','youtube') AND production_profile IS NOT NULL").fetchall()
         for a in accounts:
-            last=db.execute("SELECT max(scheduled) FROM publications WHERE account_id=? AND status IN ('approved','sending','sent','uncertain')",(a['id'],)).fetchone()[0]
+            last=db.execute("SELECT max(scheduled) FROM publications WHERE account_id=? AND status IN ('approved','sending','sent','uploaded_private','uncertain')",(a['id'],)).fetchone()[0]
             slot=max(now,(last or 0)+a['interval_seconds'])
             rows=db.execute("""SELECT c.id FROM clips c WHERE c.status='done' AND c.production_profile=?
                 AND NOT EXISTS(SELECT 1 FROM publications p WHERE p.account_id=? AND p.clip_id=c.id)
@@ -71,7 +75,7 @@ def configure_auto(db,account,profile,caption,interval,enabled):
     if enabled and not profile: raise ValueError('Choose a production profile')
     with db:
         row=db.execute('SELECT platform FROM accounts WHERE id=?',(account,)).fetchone()
-        if not row or (enabled and row['platform'] not in ('telegram','instagram','instagram_browser')): raise ValueError('Unsupported automatic publication platform')
+        if not row or (enabled and row['platform'] not in ('telegram','instagram','instagram_browser','youtube')): raise ValueError('Unsupported automatic publication platform')
         db.execute('UPDATE accounts SET production_profile=?,caption_template=?,interval_seconds=?,auto_queue=? WHERE id=?',(profile or None,caption,interval,int(enabled),account))
 
 def approve(db,pid):
@@ -84,10 +88,10 @@ def claim(db,now):
         row=db.execute("""SELECT p.*,a.platform,a.destination,a.token_env,c.output FROM publications p
         JOIN accounts a ON a.id=p.account_id JOIN clips c ON c.id=p.clip_id
         WHERE p.status='approved' AND a.enabled=1 AND p.scheduled<=? AND c.status='done'
-        AND a.platform IN ('telegram','instagram','instagram_browser')
+        AND a.platform IN ('telegram','instagram','instagram_browser','youtube')
         AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sending','uncertain','browser_blocked','blocked'))
-        AND (SELECT count(*) FROM publications q WHERE q.account_id=a.id AND q.status='sent' AND q.updated>?)<a.daily_limit
-        AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status='sent' AND q.updated>?-a.interval_seconds)
+        AND (SELECT count(*) FROM publications q WHERE q.account_id=a.id AND q.status IN ('sent','uploaded_private') AND q.updated>?)<a.daily_limit
+        AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sent','uploaded_private') AND q.updated>?-a.interval_seconds)
         ORDER BY p.scheduled,p.id LIMIT 1""",(now,now-86400,now)).fetchone()
         if row: db.execute("UPDATE publications SET status='sending',updated=? WHERE id=?",(now,row['id']))
         db.commit()
@@ -116,8 +120,16 @@ def send_one(db,root,sender=None):
     try:
         path=(root/row['output']).resolve()
         token=os.environ.get(row['token_env'])
-        if (not token and row['platform']!='instagram_browser') or not path.is_relative_to((root/'output').resolve()) or not path.is_file():
+        if (not token and row['platform'] not in ('instagram_browser','youtube')) or not path.is_relative_to((root/'output').resolve()) or not path.is_file():
             with db: db.execute("UPDATE publications SET status='blocked',error='Missing credential or output',updated=? WHERE id=?",(int(time.time()),row['id']))
+            return True
+        if sender is None and row['platform']=='youtube':
+            from youtube_publish import publish,UploadBlocked
+            try: remote,link=publish(root,row,path)
+            except UploadBlocked as exc:
+                with db: db.execute("UPDATE publications SET status='blocked',error=?,updated=? WHERE id=?",(str(exc),int(time.time()),row['id']))
+                return True
+            with db: db.execute("UPDATE publications SET status='uploaded_private',remote_id=?,url=?,updated=?,error=NULL WHERE id=?",(remote,link,int(time.time()),row['id']))
             return True
         if sender is None and row['platform']=='instagram_browser':
             from instagram_browser import publish,BrowserBlocked
