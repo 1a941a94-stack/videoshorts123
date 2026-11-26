@@ -32,7 +32,7 @@
    else link.removeAttribute('aria-current');
   }
   const metrics=document.getElementById('workspace-metrics');
-  if(metrics)metrics.hidden=!['production','results'].includes(key);
+  if(metrics)metrics.hidden=!['production'].includes(key);
   window.scrollTo(0,0);
  }
  window.addEventListener('hashchange',show);
