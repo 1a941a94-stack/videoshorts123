@@ -229,6 +229,8 @@ def main():
     tg.add_argument('--min-views',type=int,default=0)
     library=sub.add_parser('scan-telegram-library')
     library.add_argument('--full',action='store_true')
+    discovery=sub.add_parser('discover-telegram')
+    discovery.add_argument('--query',action='append')
     sub.add_parser('status')
     sub.add_parser('retry')
     work=sub.add_parser('work')
@@ -257,6 +259,9 @@ def main():
             print('CF_STAGE '+json.dumps({'stage':'import_short','detail':result}),flush=True)
             if result!='ready': raise SystemExit(1)
             print('CF_PROGRESS 1 1',flush=True)
+        elif args.action=='discover-telegram':
+            from telegram_discovery import discover,QUERIES
+            if discover(db,Path(args.db).resolve().parent,args.query or QUERIES): raise SystemExit(1)
         elif args.action=='scan-telegram-library':
             from telegram_source import scan_library
             if scan_library(db,Path(args.db).resolve().parent,args.full): raise SystemExit(1)
