@@ -250,6 +250,11 @@ def main():
     library.add_argument('--full',action='store_true')
     discovery=sub.add_parser('discover-telegram')
     discovery.add_argument('--query',action='append')
+    factory=sub.add_parser('factory')
+    factory.add_argument('--limit',type=int,default=100)
+    factory.add_argument('--out',type=Path,default=Path('output'))
+    factory.add_argument('--continuous',action='store_true')
+    factory.add_argument('--replenish',action='store_true')
     sub.add_parser('status')
     sub.add_parser('retry')
     work=sub.add_parser('work')
@@ -290,6 +295,12 @@ def main():
             scan_channel(db,Path(args.db).resolve().parent,args.channel,args.limit,args.min_views)
             print('CF_PROGRESS 1 1',flush=True)
         elif args.action=='scan': print(json.dumps(scan(db,settings,mode=args.mode),ensure_ascii=False))
+        elif args.action=='factory':
+            from dispatcher import run
+            root=Path(args.db).resolve().parent
+            with db:
+                db.execute("UPDATE clips SET status=CASE WHEN attempts<3 THEN 'pending' ELSE 'failed' END WHERE status='running'")
+            run(db,root,args.out,args.limit,args.continuous,args.replenish)
         elif args.action=='work':
             before_failed=db.execute("SELECT count(*) FROM clips WHERE status='failed'").fetchone()[0]
             total=min(args.limit,db.execute("SELECT count(*) FROM clips WHERE status='pending' AND mode=?",(args.mode,)).fetchone()[0])
