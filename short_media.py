@@ -40,6 +40,12 @@ def render_short(source,duration,output,banner=None,*,template=None,background_p
         vf=f"{prefix}scale={size}:{size}:force_original_aspect_ratio=increase,crop={size}:{size},setsar=1"
     else:
         vf=f"[0:v]scale={size}:{size}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad={size}:{size}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
+    zoom=spec['source_zoom']
+    if zoom>100:
+        scaled=2*math.ceil(size*zoom/200)
+        px=(spec['source_pan_x']+100)/200
+        py=(spec['source_pan_y']+100)/200
+        vf+=f",scale={scaled}:{scaled},crop={size}:{size}:trunc((iw-ow)*{px}/2)*2:trunc((ih-oh)*{py}/2)*2"
     outer=size+2*border
     if layout=='rectangle' and border:
         vf+=f",pad={outer}:{outer}:{border}:{border}:color={border_color}"
