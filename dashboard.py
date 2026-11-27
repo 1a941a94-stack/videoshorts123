@@ -162,6 +162,41 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/business/calendar')
+    def business_calendar():
+        from business_calendar import calendar
+        days=request.args.get('days',7,type=int)
+        if days not in (1,7,30): days=7
+        aid=request.args.get('account',type=int)
+        db=init(connect(dbpath))
+        try:
+            data=calendar(db,days,aid)
+            db.commit()
+        finally: db.close()
+        return render_template('business_calendar.html',data=data,days=days,aid=aid,csrf=session['csrf'],error=request.args.get('error',''),message=request.args.get('message',''))
+
+    @app.post('/business/calendar/draft')
+    def business_calendar_draft():
+        from business_calendar import create_draft,parse_date
+        db=init(connect(dbpath))
+        try:
+            pid=create_draft(db,int(request.form['account']),int(request.form['clip']),int(request.form.get('material') or 0),parse_date(request.form['scheduled']),request.form.get('caption',''))
+            return redirect(url_for('business_calendar',message=f'Создан черновик #{pid}'),code=303)
+        except (ValueError,KeyError,sqlite3.IntegrityError) as exc:
+            return redirect(url_for('business_calendar',error=str(exc)),code=303)
+        finally: db.close()
+
+    @app.post('/business/calendar/<int:pid>/<operation>')
+    def business_calendar_modify(pid,operation):
+        from business_calendar import modify,parse_date
+        db=init(connect(dbpath))
+        try:
+            modify(db,pid,operation,parse_date(request.form.get('scheduled','')) if operation=='move' else None)
+            return redirect(url_for('business_calendar',message='Изменения сохранены'),code=303)
+        except ValueError as exc:
+            return redirect(url_for('business_calendar',error=str(exc)),code=303)
+        finally: db.close()
+
     @app.get('/business/resources')
     def business_resources():
         from business_resources import state
