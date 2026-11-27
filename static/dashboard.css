@@ -49,3 +49,24 @@ input:focus-visible,button:focus-visible,select:focus-visible,textarea:focus-vis
 #studio-ad-grip{position:absolute;right:0;bottom:0;width:13px;height:13px;background:var(--accent);border:1px solid white;cursor:nwse-resize}
 #studio-caption{position:absolute;z-index:4;left:5%;width:90%;text-align:center;transform:translateY(-50%);font-weight:700;pointer-events:none;overflow-wrap:anywhere}
 @media(max-width:700px){.studio-grid{grid-template-columns:1fr}.studio-layers{display:flex;flex-wrap:wrap}.studio-layers h4{width:100%}.studio-grid #template-form{grid-template-columns:1fr}.studio-grid #template-preview{max-width:300px}}
+
+/* Independent source workflows and compact, consistent actions. */
+.source-block{border:1px solid var(--line);border-radius:12px;padding:20px;margin-top:18px;background:var(--bg)}
+.source-block h4{margin:0 0 16px;font-size:16px}
+.source-block .fields{align-items:end;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+.source-block .fields label{min-width:0}
+.source-block .fields input:not([type=checkbox]),.source-block .fields select,.source-block .fields textarea{width:100%;min-width:0;box-sizing:border-box}
+.source-block .fields input:not([type=checkbox]),.source-block .fields select{height:42px}
+.source-block .fields textarea{height:auto;min-height:100px}
+.source-block .fields button{height:42px;white-space:normal}
+.source-block .fields label:has(input[type=checkbox]),.source-block .inline label{display:flex;align-items:center;gap:8px}
+.source-block input[type=checkbox]{width:auto;min-width:0;margin:0}
+.source-block .inline{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px}
+#telegram td:last-child,#sources td:last-child{white-space:normal}
+#telegram td:last-child form,#sources td:last-child form{display:inline-block;margin:3px}
+#telegram td:last-child button,#sources td:last-child button{min-width:110px;padding:9px 14px}
+button.danger-outline{background:transparent;color:#f2a1a1;border:1px solid #97565c}
+button.danger-outline:hover:not(:disabled){background:#6b313a;color:#fff}
+#production-live{margin-bottom:18px}
+#production-live .live-job{margin-bottom:0}
+@media(max-width:700px){.source-block{padding:14px}.source-block .fields{grid-template-columns:1fr}#telegram .heading,#sources .heading{flex-wrap:wrap;gap:10px}}
