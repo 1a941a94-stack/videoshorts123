@@ -39,7 +39,7 @@ def connect(path):
     db.execute('BEGIN IMMEDIATE')
     try:
         cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
-        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT'),('production_profile','TEXT'),('cover','TEXT'),('cover_error','TEXT'),('quality_result','TEXT'),('archived_status','TEXT'),('task_snapshot','TEXT'),('run_id','INTEGER'),('priority','INTEGER NOT NULL DEFAULT 0')]:
+        for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT'),('production_profile','TEXT'),('cover','TEXT'),('cover_error','TEXT'),('quality_result','TEXT'),('archived_status','TEXT'),('archived_at','INTEGER'),('task_snapshot','TEXT'),('run_id','INTEGER'),('priority','INTEGER NOT NULL DEFAULT 0')]:
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
         from production_runs import init
         init(db)
