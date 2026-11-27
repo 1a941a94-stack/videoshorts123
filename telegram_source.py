@@ -13,10 +13,16 @@ def channel_name(value):
         raise ValueError('Enter a public channel username or t.me link')
     return value.lower()
 
+def credentials():
+    api_id=os.getenv('TG_API_ID','').strip()
+    api_hash=os.getenv('TG_API_HASH','').strip()
+    if not api_id.isdigit() or int(api_id)<=0 or not re.fullmatch(r'[a-fA-F0-9]{32}',api_hash):
+        raise ValueError('Telegram: задайте TG_API_ID и TG_API_HASH в PowerShell перед запуском программы, затем выполните telegram_source.py login.')
+    return int(api_id),api_hash
+
 def client(root):
+    api_id,api_hash=credentials()
     from telethon.sync import TelegramClient
-    api_id=int(os.environ['TG_API_ID'])
-    api_hash=os.environ['TG_API_HASH']
     return TelegramClient(str(Path(root).resolve()/'telegram-reader'),api_id,api_hash,
                           request_retries=2,connection_retries=2,flood_sleep_threshold=0)
 
@@ -75,6 +81,11 @@ def scan_library(db,root,full=False):
     from telethon.errors import FloodWaitError
     rows=db.execute("SELECT * FROM telegram_channels WHERE enabled=1 ORDER BY coalesce(last_scan,0),name").fetchall()
     failures=0
+    try: credentials()
+    except ValueError as exc:
+        stage('error',str(exc))
+        print(str(exc),flush=True)
+        return 1
     print(f'CF_PROGRESS 0 {len(rows)}',flush=True)
     for i,row in enumerate(rows,1):
         name=row['name']
@@ -90,7 +101,8 @@ def scan_library(db,root,full=False):
         except Exception as exc:
             failures+=1
             with db: db.execute("UPDATE telegram_channels SET error=?,last_scan=? WHERE name=?",(str(exc)[:300],int(time.time()),name))
-            stage('error',f'@{name}: {type(exc).__name__}')
+            stage('error',f'@{name}: {type(exc).__name__}: {str(exc)[:240]}')
+            print(f'@{name}: {type(exc).__name__}: {str(exc)[:240]}',flush=True)
         print(f'CF_PROGRESS {i} {len(rows)}',flush=True)
         if i<len(rows): time.sleep(2)
     return failures
