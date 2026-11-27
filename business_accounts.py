@@ -96,7 +96,7 @@ def release(db,aid):
 
 def rows(db,limit=100,offset=0):
     init(db)
-    return [dict(row) for row in db.execute("""SELECT a.id,a.name,a.platform,a.destination,a.topic,a.enabled,a.daily_limit,b.timezone,b.state,b.avatar_id,b.profile_id,m.payload profile_payload,
+    return [dict(row) for row in db.execute("""SELECT a.id,a.name,a.platform,a.destination,a.token_env,a.topic,a.enabled,a.daily_limit,b.timezone,b.state,b.avatar_id,b.profile_id,m.payload profile_payload,
         (SELECT count(*) FROM publications p WHERE p.account_id=a.id AND p.status='sent') published,
         (SELECT count(*) FROM publications p WHERE p.account_id=a.id AND p.status IN ('blocked','browser_blocked','uncertain')) issues
         FROM accounts a JOIN business_accounts b ON b.account_id=a.id LEFT JOIN business_materials m ON m.id=b.profile_id ORDER BY a.id DESC LIMIT ? OFFSET ?""",(limit,offset))]
