@@ -1,0 +1,36 @@
+name: Business deployment smoke
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start isolated business deployment
+        run: |
+          cp .env.example .env
+          mkdir -p data
+          sudo chown 10001:10001 data
+          docker compose -f compose.business.yaml up -d --build --wait --wait-timeout 240
+      - name: Verify business pages and controller
+        run: docker compose -f compose.business.yaml exec -T factory python /app/deployment_smoke.py
+      - name: Verify actual local media rendering in production image
+        run: docker compose -f compose.business.yaml exec -T -w /app factory python -m unittest -v test_montage_e2e test_render_visual
+      - name: Verify restart and persistent storage
+        run: |
+          docker compose -f compose.business.yaml restart factory
+          docker compose -f compose.business.yaml up -d --wait --wait-timeout 240
+          docker compose -f compose.business.yaml exec -T factory python /app/deployment_smoke.py
+      - name: Container diagnostics
+        if: always()
+        run: |
+          docker compose -f compose.business.yaml ps
+          docker compose -f compose.business.yaml logs --tail=150
+      - name: Cleanup
+        if: always()
+        run: docker compose -f compose.business.yaml down
