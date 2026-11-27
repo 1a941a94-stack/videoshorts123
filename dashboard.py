@@ -162,6 +162,18 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/business/finance')
+    def business_finance():
+        from business_finance import state
+        days=request.args.get('days',30,type=int)
+        if days not in (7,30,90): days=30
+        db=init(connect(dbpath))
+        try:
+            data=state(db,days)
+            db.commit()
+        finally: db.close()
+        return render_template('business_finance.html',data=data)
+
     @app.get('/business/monetization')
     def business_monetization():
         from business_monetization import state,campaigns
