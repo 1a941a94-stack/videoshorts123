@@ -6,7 +6,7 @@ export default [{
     globals: Object.fromEntries([
       "window","document","location","navigator","fetch","URL","URLSearchParams",
       "FormData","Event","CustomEvent","HTMLElement","HTMLInputElement","HTMLFormElement",
-      "AbortController","File","Blob","FileReader","Image","MutationObserver","ResizeObserver",
+      "AbortController","AbortSignal","Option","DOMParser","File","Blob","FileReader","Image","MutationObserver","ResizeObserver",
       "IntersectionObserver","requestAnimationFrame","cancelAnimationFrame",
       "setTimeout","clearTimeout","setInterval","clearInterval","console","confirm","alert",
       "localStorage","sessionStorage","performance","CSS","history","prompt","Intl","TextDecoder"

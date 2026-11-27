@@ -36,11 +36,12 @@ class VisualRenderTest(unittest.TestCase):
                 return img
             try:
                 a,b,c=(frame(t) for t in (.2,1,1.8))
-                for img in (a,c):
-                    self.assertGreater(int(img[250,540,0]),200)
-                    self.assertLess(int(img[250,540,1]),40)
-                self.assertGreater(int(b[250,540,1]),90)
-                self.assertLess(int(b[250,540,0]),40)
+                for img in (a,b,c):
+                    # Campaign banners remain visible throughout the clip, even after looping.
+                    self.assertGreater(int(img[250,540,1]),90)
+                    self.assertLess(int(img[250,540,0]),40)
+                    self.assertGreater(int(img[100,540,0]),200)
+                    self.assertLess(int(img[100,540,1]),40)
                 self.assertGreater(int(b[1060,540,2]),200)
                 self.assertTrue(all(int(v)>220 for v in b[1060,210]))
                 self.assertGreater(int(b[730,210,0]),200)
