@@ -162,6 +162,34 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/business/reports')
+    def business_reports():
+        from business_reports import status
+        db=connect(dbpath)
+        try:
+            data=status(db)
+            db.commit()
+        finally: db.close()
+        return render_template('business_reports.html',data=data)
+
+    def report_loop():
+        from business_reports import tick
+        from filelock import FileLock,Timeout
+        while True:
+            time.sleep(60)
+            db=None
+            try:
+                if os.environ.get('CLIP_REPORT_ENABLED','0')!='1': continue
+                with FileLock(str(root/'business-reports.lock'),timeout=0):
+                    db=init(connect(dbpath))
+                    tick(db,root)
+            except Timeout: pass
+            except Exception:
+                # Do not log exception text: HTTP errors can contain the bot token.
+                app.logger.warning('Business report check failed; inspect report configuration')
+            finally:
+                if db is not None: db.close()
+
     @app.get('/business/analytics')
     def business_analytics():
         from business_analytics import state,DIMENSIONS
@@ -1470,9 +1498,11 @@ def create_app(root=ROOT):
         if not path.is_relative_to(out.resolve()) or not path.is_file() or path.suffix!='.mp4': abort(404)
         return send_file(path,mimetype='video/mp4',conditional=True)
     app.extensions['factory_controller_loop']=controller_loop
+    app.extensions['business_report_loop']=report_loop
     return app
 
 if __name__=='__main__':
     app=create_app()
     threading.Thread(target=app.extensions['factory_controller_loop'],daemon=True,name='factory-controller').start()
+    threading.Thread(target=app.extensions['business_report_loop'],daemon=True,name='business-reports').start()
     app.run(host='127.0.0.1',port=8080,debug=False)
