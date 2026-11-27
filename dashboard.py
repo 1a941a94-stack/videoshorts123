@@ -200,6 +200,8 @@ def create_app(root=ROOT):
             total=db.execute('SELECT count(*) FROM accounts').fetchone()[0]
             page=min(max(1,request.args.get('page',1,type=int)),max(1,(total+99)//100))
             accounts=rows(db,offset=(page-1)*100)
+            from account_lifecycle import decorate
+            decorate(db,accounts)
             for account in accounts:
                 account['profile']=json.loads(account.pop('profile_payload') or '{}')
             db.commit()
@@ -220,6 +222,22 @@ def create_app(root=ROOT):
                 event(db,'accounts',f'Импорт аккаунтов: {added}, дубли: {duplicates}')
             return redirect(url_for('business_accounts',message=f'Добавлено: {added}. Дубликатов: {duplicates}.'),code=303)
         except (ValueError,sqlite3.IntegrityError) as exc:
+            return redirect(url_for('business_accounts',error=str(exc)),code=303)
+        finally: db.close()
+
+    @app.post('/business/accounts/<int:aid>/lifecycle')
+    def business_account_lifecycle(aid):
+        from account_lifecycle import change
+        from datetime import datetime,timezone
+        db=init(connect(dbpath))
+        try:
+            operation=request.form.get('operation','')
+            start=None
+            if operation=='schedule':
+                start=int(datetime.strptime(request.form.get('start_at',''),'%Y-%m-%dT%H:%M').replace(tzinfo=timezone.utc).timestamp())
+            change(db,aid,operation,start)
+            return redirect(url_for('business_accounts',message='Состояние сохранено'),code=303)
+        except ValueError as exc:
             return redirect(url_for('business_accounts',error=str(exc)),code=303)
         finally: db.close()
 
