@@ -21,10 +21,11 @@ def credentials():
     return int(api_id),api_hash
 
 def client(root):
+    from telegram_proxy import connection_options
     api_id,api_hash=credentials()
     from telethon.sync import TelegramClient
     return TelegramClient(str(Path(root).resolve()/'telegram-reader'),api_id,api_hash,
-                          request_retries=2,connection_retries=2,flood_sleep_threshold=0)
+                          request_retries=2,connection_retries=2,flood_sleep_threshold=0,**connection_options(root))
 
 def login(root):
     with FileLock(str(Path(root)/'telegram-reader.lock'),timeout=0):
