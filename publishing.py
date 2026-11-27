@@ -187,7 +187,8 @@ def main():
             with FileLock(str(root/'publication.lock'),timeout=0):
                 with db: db.execute("UPDATE publications SET status='uncertain',error='Interrupted upload; reconcile manually' WHERE status='sending'")
                 stop=root/'publication.stop'
-                if args.action=='run': stop.unlink(missing_ok=True)
+                # The initiating UI clears the stop flag before spawning this process.
+                # Never clear it here: a stop may have arrived during startup.
                 while not stop.exists():
                     if args.action=='run': sync_ready(db)
                     while not stop.exists() and send_one(db,root): pass

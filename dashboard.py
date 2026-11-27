@@ -524,8 +524,10 @@ def create_app(root=ROOT):
             try:
                 enable(db,operation=='start')
                 current=state(db)
-                if operation=='stop' and job.get('run_id')==current['run_id'] and job['process'] and job['process'].poll() is None:
-                    (root/'factory.stop').touch()
+                if operation=='stop':
+                    (root/'publication.stop').touch()
+                    if current['run_id'] is not None and job.get('run_id')==current['run_id'] and job['process'] and job['process'].poll() is None:
+                        (root/'factory.stop').touch()
                 db.commit()
             finally: db.close()
         return redirect(url_for('business'),code=303)
