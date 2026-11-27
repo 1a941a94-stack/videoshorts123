@@ -314,6 +314,17 @@ def create_app(root=ROOT):
         except ValueError as exc:
             return redirect(url_for('business_resources',error=str(exc)),code=303)
 
+    @app.post('/business/resources/proxy6-invoice')
+    def proxy6_invoice():
+        from business_resources import record_proxy6_invoice
+        db=connect(dbpath)
+        try:
+            added=record_proxy6_invoice(db,request.form)
+            return redirect(url_for('business_resources',message='Расход учтён' if added else 'Счёт уже учтён'),code=303)
+        except (ValueError,sqlite3.IntegrityError) as exc:
+            return redirect(url_for('business_resources',error=str(exc)),code=303)
+        finally: db.close()
+
     @app.post('/business/resources/<operation>')
     def business_resource_action(operation):
         from business_resources import add,budget,record,archive

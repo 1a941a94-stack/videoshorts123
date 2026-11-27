@@ -66,3 +66,23 @@ def archive(db,sid):
     with db:
         init(db)
         if not db.execute("UPDATE business_services SET status='archived' WHERE id=? AND status='active'",(sid,)).rowcount: raise ValueError('Услуга не найдена или уже в архиве')
+
+def record_proxy6_invoice(db,form):
+    """Record a verified external invoice, never initiate a purchase."""
+    amount=money(form.get('amount',''))
+    ref=form.get('invoice','').strip()
+    if not amount or not 1<=len(ref)<=80:
+        raise ValueError('Укажите сумму в рублях и номер оплаченного счёта')
+    with db:
+        db.execute('BEGIN IMMEDIATE')
+        init(db)
+        db.execute("""INSERT OR IGNORE INTO business_services(supplier,name,kind,created)
+            VALUES('PROXY6','PROXY6 — оплаченные счета','network',?)""",(int(time.time()),))
+        sid=db.execute("SELECT id FROM business_services WHERE supplier='PROXY6' AND name='PROXY6 — оплаченные счета'").fetchone()[0]
+        existing=db.execute('SELECT amount,service_id FROM business_expenses WHERE reference=?',('PROXY6:'+ref,)).fetchone()
+        if existing:
+            if existing[0]!=amount or existing[1]!=sid: raise ValueError('Счёт уже записан с другими параметрами')
+            return False
+        db.execute('INSERT INTO business_expenses(service_id,amount,created,note,reference) VALUES(?,?,?,?,?)',
+            (sid,amount,int(time.time()),'Оплаченный счёт поставщика','PROXY6:'+ref))
+        return True
