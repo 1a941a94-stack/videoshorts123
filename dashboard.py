@@ -288,9 +288,31 @@ def create_app(root=ROOT):
         db=connect(dbpath)
         try:
             data=state(db)
+            from proxy6_inventory import state as proxy_state
+            data['proxy6']=proxy_state(db)
             db.commit()
         finally: db.close()
         return render_template('business_resources.html',data=data,csrf=session['csrf'],message=request.args.get('message',''),error=request.args.get('error',''))
+
+    @app.post('/business/resources/proxy6-sync')
+    def proxy6_sync():
+        from proxy6_inventory import refresh
+        db=connect(dbpath)
+        try:
+            count=refresh(db)
+            return redirect(url_for('business_resources',message=f'PROXY6: синхронизировано {count} услуг'),code=303)
+        except ValueError as exc:
+            return redirect(url_for('business_resources',error=str(exc)),code=303)
+        finally: db.close()
+
+    @app.post('/business/resources/proxy6-quote')
+    def proxy6_quote():
+        from proxy6_inventory import quote
+        try:
+            price,currency=quote(int(request.form.get('count','')),int(request.form.get('period','')),int(request.form.get('version','')))
+            return redirect(url_for('business_resources',message=f'Стоимость PROXY6: {price} {currency}'),code=303)
+        except ValueError as exc:
+            return redirect(url_for('business_resources',error=str(exc)),code=303)
 
     @app.post('/business/resources/<operation>')
     def business_resource_action(operation):
