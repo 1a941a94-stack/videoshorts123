@@ -47,8 +47,13 @@ def create_app(root=ROOT):
 
     next_trash_check=0
 
+    @app.get('/healthz')
+    def healthz():
+        return jsonify(ok=True)
+
     @app.before_request
     def trash_maintenance():
+        if request.endpoint=='healthz': return
         nonlocal next_trash_check
         if time.monotonic()<next_trash_check: return
         if not lock.acquire(blocking=False): return
@@ -1502,7 +1507,9 @@ def create_app(root=ROOT):
     return app
 
 if __name__=='__main__':
-    app=create_app()
+    data_root=Path(os.environ.get('CLIP_DATA_ROOT',str(ROOT))).resolve()
+    data_root.mkdir(parents=True,exist_ok=True)
+    app=create_app(data_root)
     threading.Thread(target=app.extensions['factory_controller_loop'],daemon=True,name='factory-controller').start()
     threading.Thread(target=app.extensions['business_report_loop'],daemon=True,name='business-reports').start()
-    app.run(host='127.0.0.1',port=8080,debug=False)
+    app.run(host=os.environ.get('CLIP_BIND_HOST','127.0.0.1'),port=8080,debug=False)
