@@ -6,6 +6,12 @@ import urllib.request
 import sqlite3
 from pathlib import Path
 
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+import telethon
+import requests
+
 base = 'http://127.0.0.1:8080'
 client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 def get(path):

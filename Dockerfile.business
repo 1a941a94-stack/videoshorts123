@@ -2,8 +2,8 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 HF_HOME=/data/models
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr tesseract-ocr-rus tesseract-ocr-eng fonts-dejavu-core fonts-liberation ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-youtube.txt ./
+RUN pip install --no-cache-dir -r requirements-youtube.txt
 COPY . /app
 RUN useradd --create-home --uid 10001 clip && mkdir /data && chown clip:clip /data
 USER clip
