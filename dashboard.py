@@ -973,7 +973,7 @@ def create_app(root=ROOT):
                         if any(row['status'] not in allowed for row in rows): abort(409,'Invalid clip state for this action')
                         for row in rows:
                             if action=='archive':
-                                db.execute("UPDATE clips SET archived_status=status,status='archived' WHERE id=?",(row['id'],))
+                                db.execute("UPDATE clips SET archived_status=status,status='archived',archived_at=? WHERE id=?",(int(time.time()),row['id']))
                             elif action=='restore':
                                 db.execute("UPDATE clips SET status=coalesce(archived_status,'pending'),archived_status=NULL WHERE id=?",(row['id'],))
                             else:
