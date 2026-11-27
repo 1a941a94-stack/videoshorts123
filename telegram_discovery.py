@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 from filelock import FileLock
 from source_media import stage
-from telegram_source import client,channel_name
+from telegram_source import client,channel_name,is_video_message
 
 QUERIES=('видеомемы','мемы видео','смешные видео','приколы видео','угарные видео','мемы без текста','смешные животные','старые приколы','funny videos','video memes')
 
@@ -12,7 +12,7 @@ def qualifies(messages,min_videos=5,min_fraction=.2):
     for msg in messages:
         if getattr(msg,'action',None): continue
         total+=1
-        if not getattr(msg,'video',None) or getattr(msg,'noforwards',False): continue
+        if not is_video_message(msg) or getattr(msg,'noforwards',False): continue
         file=msg.file
         if file and 5<=(file.duration or 0)<=60 and 0<(file.size or 0)<=100*1024**2:
             videos+=1
