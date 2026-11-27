@@ -1324,7 +1324,7 @@ def create_app(root=ROOT):
                 configure_auto(db,int(request.form['id']),profile,request.form.get('caption',''),int(request.form.get('interval','3600')),request.form.get('auto')=='1')
             elif action=='sync': sync_ready(db)
             elif action=='toggle':
-                with db: db.execute('UPDATE accounts SET enabled=1-enabled WHERE id=?',(int(request.form['id']),))
+                with db: db.execute("UPDATE accounts SET enabled=1-enabled WHERE id=? AND NOT EXISTS(SELECT 1 FROM account_lifecycle l WHERE l.account_id=accounts.id AND l.state='archived')",(int(request.form['id']),))
             elif action=='draft':
                 enqueue(db,int(request.form['account']),int(request.form['clip']),request.form['caption'],int(request.form.get('scheduled') or time.time()))
             elif action=='approve':

@@ -50,6 +50,7 @@ def add_account(db,name,platform,destination,token_env,topic='',daily_limit=2,in
 def enqueue(db,account,clip,caption,scheduled):
     row=db.execute("SELECT status FROM clips WHERE id=?",(clip,)).fetchone()
     if not row or row['status']!='done': raise ValueError('Clip is not ready')
+    if db.execute("SELECT 1 FROM account_lifecycle WHERE account_id=? AND state='archived'",(account,)).fetchone(): raise ValueError('Account archived')
     with db:
         db.execute("INSERT OR IGNORE INTO publications(account_id,clip_id,caption,scheduled,updated) VALUES(?,?,?,?,?)",(account,clip,caption,scheduled,int(time.time())))
 
@@ -59,7 +60,7 @@ def sync_ready(db,now=None):
     count=0
     db.execute('BEGIN IMMEDIATE')
     with db:
-        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform IN ('telegram','instagram','instagram_browser','youtube') AND production_profile IS NOT NULL").fetchall()
+        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform IN ('telegram','instagram','instagram_browser','youtube') AND production_profile IS NOT NULL AND NOT EXISTS(SELECT 1 FROM account_lifecycle l WHERE l.account_id=accounts.id AND l.state='archived')").fetchall()
         for a in accounts:
             last=db.execute("SELECT max(scheduled) FROM publications WHERE account_id=? AND status IN ('approved','sending','sent','uploaded_private','uncertain')",(a['id'],)).fetchone()[0]
             slot=max(now,(last or 0)+a['interval_seconds'])
@@ -77,6 +78,7 @@ def configure_auto(db,account,profile,caption,interval,enabled):
     if enabled and not profile: raise ValueError('Choose a production profile')
     with db:
         row=db.execute('SELECT platform FROM accounts WHERE id=?',(account,)).fetchone()
+        if enabled and db.execute("SELECT 1 FROM account_lifecycle WHERE account_id=? AND state='archived'",(account,)).fetchone(): raise ValueError('Account archived')
         if not row or (enabled and row['platform'] not in ('telegram','instagram','instagram_browser','youtube')): raise ValueError('Unsupported automatic publication platform')
         db.execute('UPDATE accounts SET production_profile=?,caption_template=?,interval_seconds=?,auto_queue=? WHERE id=?',(profile or None,caption,interval,int(enabled),account))
 
@@ -91,7 +93,7 @@ def claim(db,now):
         JOIN accounts a ON a.id=p.account_id JOIN clips c ON c.id=p.clip_id
         WHERE p.status='approved' AND a.enabled=1 AND p.scheduled<=? AND c.status='done'
         AND a.platform IN ('telegram','instagram','instagram_browser','youtube')
-        AND NOT EXISTS(SELECT 1 FROM account_lifecycle l WHERE l.account_id=a.id AND (l.state IN ('paused','review') OR (l.state='scheduled' AND l.start_at>?)))
+        AND NOT EXISTS(SELECT 1 FROM account_lifecycle l WHERE l.account_id=a.id AND (l.state IN ('paused','review','archived') OR (l.state='scheduled' AND l.start_at>?)))
         AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sending','uncertain','browser_blocked','blocked'))
         AND (SELECT count(*) FROM publications q WHERE q.account_id=a.id AND q.status IN ('sent','uploaded_private') AND q.updated>?)<a.daily_limit
         AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sent','uploaded_private') AND q.updated>?-a.interval_seconds)
@@ -176,7 +178,7 @@ def main():
     try:
         if args.action=='account': add_account(db,args.name,args.platform,args.destination,args.token_env,args.topic,args.daily)
         elif args.action=='enable':
-            with db: db.execute('UPDATE accounts SET enabled=? WHERE id=?',(int(not args.off),args.id))
+            with db: db.execute("UPDATE accounts SET enabled=? WHERE id=? AND NOT EXISTS(SELECT 1 FROM account_lifecycle l WHERE l.account_id=accounts.id AND l.state='archived')",(int(not args.off),args.id))
         elif args.action=='draft': enqueue(db,args.account,args.clip,args.caption,args.scheduled or int(time.time()))
         elif args.action=='approve': print(approve(db,args.id))
         elif args.action=='stop': (root/'publication.stop').touch()
