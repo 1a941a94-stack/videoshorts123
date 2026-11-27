@@ -41,12 +41,12 @@ class Banner:
         if self.end is not None and (not math.isfinite(self.end) or self.end<=self.start): raise ValueError('Invalid end')
 
     def filter(self, duration):
-        end=min(duration,self.end if self.end is not None else duration)
-        if end<=self.start: raise ValueError('Banner interval does not intersect clip')
+        # Campaign overlays always cover the full output, regardless of legacy timing.
+        end=duration
         y={'top':str(self.margin),'bottom':f'H-h-{self.margin}','center':'(H-h)/2'}[self.position]
         return (f'[base];[1:v]setpts=PTS-STARTPTS,scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,'
                 f'format=rgba,colorchannelmixer=aa={self.opacity}[ad];'
-                f"[base][ad]overlay=(W-w)/2+({self.x}):({y})+({self.y}):enable='gte(t,{self.start})*lt(t,{end})'[v]")
+                f"[base][ad]overlay=(W-w)/2+({self.x}):({y})+({self.y}):eof_action=repeat:repeatlast=1:enable='gte(t,0)*lt(t,{end})'[v]")
 
 def choose(config, duration, rng=None, campaign=None):
     config=Path(config).resolve()
@@ -67,9 +67,8 @@ def choose(config, duration, rng=None, campaign=None):
             if not math.isfinite(weight) or weight<=0: raise ValueError('Invalid campaign weight')
             spec={k:row[k] for k in ('name','width','height','position','margin','opacity','start','end','x','y') if k in row}
             banner=Banner(path=(config.parent/row['path']).resolve(),**spec)
-            if banner.start<duration:
-                active.append(banner)
-                weights.append(weight)
+            active.append(banner)
+            weights.append(weight)
     if not active: raise ValueError('No eligible active banner campaign')
     return (rng or random).choices(active,weights=weights,k=1)[0]
 
