@@ -1,9 +1,9 @@
 (() => {
  const views={
-  overview:{title:'Производство',ids:['production-runs','production-controls']},
+  overview:{title:'Производство',ids:['production-live','production-runs','production-controls']},
   queue:{title:'Очередь производства',ids:['queue']},
   configurations:{title:'Конфигурации',ids:['run-configurations']},
-  production:{title:'Расширенное производство',ids:['production-controls','factory']},
+  production:{title:'Расширенное производство',ids:['production-live','production-controls','factory']},
   library:{title:'Источники',ids:['sources','telegram','manual-import','local-library','videos']},
   results:{title:'Готовые ролики',ids:['clips']},
   design:{title:'Шаблоны',ids:['saved-templates','short-template']},
