@@ -445,6 +445,64 @@ def create_app(root=ROOT):
         finally: db.close()
         return redirect(url_for('business'),code=303)
 
+    @app.post('/business/controller/<operation>')
+    def business_controller_action(operation):
+        from factory_controller import enable,state
+        if operation not in ('start','stop'): abort(404)
+        with lock:
+            db=connect(dbpath)
+            try:
+                enable(db,operation=='start')
+                current=state(db)
+                if operation=='stop' and job.get('run_id')==current['run_id'] and job['process'] and job['process'].poll() is None:
+                    (root/'factory.stop').touch()
+                db.commit()
+            finally: db.close()
+        return redirect(url_for('business'),code=303)
+
+    def controller_loop():
+        from factory_controller import state,decision,record
+        from run_configs import load
+        from production_runs import create,set_status
+        from filelock import FileLock,Timeout
+        while True:
+            time.sleep(5)
+            if not lock.acquire(blocking=False): continue
+            db=None
+            try:
+                db=init(connect(dbpath))
+                current=state(db)
+                db.commit()
+                if not current['enabled'] or current['next_check']>time.time(): continue
+                if (job['process'] and job['process'].poll() is None) or preview_lock.locked():
+                    record(db,'Производство занято',30)
+                    continue
+                with FileLock(str(dbpath)+'.production.lock',timeout=0):
+                    task,detail,delay=decision(db,root,load(root)['items'])
+                    db.commit()
+                    if not task:
+                        record(db,detail,delay)
+                        continue
+                    goal,snap=task
+                    run_id=create(db,goal,snap)
+                    record(db,f'Запуск партии #{run_id}: до {goal} роликов',60,run_id)
+                try: launch_run(run_id)
+                except OSError as exc:
+                    set_status(db,run_id,'failed',str(exc))
+                    record(db,'Не удалось запустить производство',300)
+            except Timeout:
+                if db is not None: record(db,'Производство занято другим процессом',60)
+            except Exception:
+                app.logger.exception('Factory controller check failed')
+                if db is not None:
+                    try:
+                        db.rollback()
+                        record(db,'Ошибка проверки; повтор через 5 минут',300)
+                    except Exception: app.logger.exception('Cannot record controller error')
+            finally:
+                if db is not None: db.close()
+                lock.release()
+
     @app.post('/business/start')
     def business_start():
         from business_factory import state,event
@@ -1411,7 +1469,10 @@ def create_app(root=ROOT):
         path=(root/row['output']).resolve()
         if not path.is_relative_to(out.resolve()) or not path.is_file() or path.suffix!='.mp4': abort(404)
         return send_file(path,mimetype='video/mp4',conditional=True)
+    app.extensions['factory_controller_loop']=controller_loop
     return app
 
 if __name__=='__main__':
-    create_app().run(host='127.0.0.1',port=8080,debug=False)
+    app=create_app()
+    threading.Thread(target=app.extensions['factory_controller_loop'],daemon=True,name='factory-controller').start()
+    app.run(host='127.0.0.1',port=8080,debug=False)
