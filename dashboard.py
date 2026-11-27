@@ -355,9 +355,10 @@ def create_app(root=ROOT):
             accounts=rows(db,offset=(page-1)*100)
             from account_lifecycle import decorate
             decorate(db,accounts)
-            from account_sessions import describe
+            from account_sessions import describe,instructions
             for account in accounts:
                 account['session_status']=describe(root,account)
+                account['session_instructions']=instructions(account)
                 account.pop('token_env',None)
                 account['profile']=json.loads(account.pop('profile_payload') or '{}')
             db.commit()
