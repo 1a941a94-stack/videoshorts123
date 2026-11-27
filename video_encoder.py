@@ -19,8 +19,13 @@ def encode(command,tail,output,cwd,mode=None,report=print):
     if mode!='cpu' and qsv_available():
         try:
             subprocess.run([*command,*QSV,'-pix_fmt','nv12',*tail,str(output)],check=True,cwd=cwd,timeout=600,stderr=subprocess.PIPE)
-            return 'qsv'
-        except (subprocess.CalledProcessError,subprocess.TimeoutExpired):
+            from quality import inspect
+            video=next((s for s in inspect(output).get('streams',[]) if s.get('codec_type')=='video'),{})
+            if video.get('codec_name')!='h264' or video.get('pix_fmt')!='yuv420p':
+                output.unlink(missing_ok=True)
+                report('Quick Sync produced incompatible format; falling back to CPU')
+            else: return 'qsv'
+        except (OSError,ValueError,subprocess.SubprocessError):
             output.unlink(missing_ok=True)
             report('Quick Sync failed; falling back to CPU')
     try:
