@@ -162,6 +162,58 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/business/accounts')
+    def business_accounts():
+        from business_accounts import init as init_accounts,rows
+        db=init(connect(dbpath))
+        try:
+            init_accounts(db)
+            total=db.execute('SELECT count(*) FROM accounts').fetchone()[0]
+            page=min(max(1,request.args.get('page',1,type=int)),max(1,(total+99)//100))
+            accounts=rows(db,offset=(page-1)*100)
+            for account in accounts:
+                account['profile']=json.loads(account.pop('profile_payload') or '{}')
+            db.commit()
+        finally: db.close()
+        return render_template('business_accounts.html',accounts=accounts,total=total,page=page,csrf=session['csrf'],message=request.args.get('message',''),error=request.args.get('error',''))
+
+    @app.post('/business/accounts/import')
+    def business_accounts_import():
+        from business_accounts import import_csv
+        from business_factory import init as init_business,event
+        db=init(connect(dbpath))
+        try:
+            upload=request.files.get('file')
+            if not upload: raise ValueError('Выберите CSV')
+            added,duplicates=import_csv(db,upload.stream.read(2*1024*1024+1))
+            with db:
+                init_business(db)
+                event(db,'accounts',f'Импорт аккаунтов: {added}, дубли: {duplicates}')
+            return redirect(url_for('business_accounts',message=f'Добавлено: {added}. Дубликатов: {duplicates}.'),code=303)
+        except (ValueError,sqlite3.IntegrityError) as exc:
+            return redirect(url_for('business_accounts',error=str(exc)),code=303)
+        finally: db.close()
+
+    @app.post('/business/accounts/<int:aid>/<operation>')
+    def business_account_action(aid,operation):
+        from business_accounts import assign,release
+        from business_factory import init as init_business,event
+        if operation not in ('assign','release','pause'): abort(404)
+        db=init(connect(dbpath))
+        try:
+            if operation=='assign': assign(db,aid)
+            elif operation=='release': release(db,aid)
+            else:
+                with db:
+                    if not db.execute('UPDATE accounts SET enabled=0 WHERE id=?',(aid,)).rowcount: raise ValueError('Аккаунт не найден')
+            with db:
+                init_business(db)
+                event(db,'accounts',f'Аккаунт #{aid}: '+{'assign':'материалы зарезервированы','release':'резерв освобождён','pause':'новые публикации приостановлены'}[operation])
+            return redirect(url_for('business_accounts',message='Операция выполнена'),code=303)
+        except ValueError as exc:
+            return redirect(url_for('business_accounts',error=str(exc)),code=303)
+        finally: db.close()
+
     @app.get('/business/library')
     def business_library():
         from business_library import init,inventory,KINDS
