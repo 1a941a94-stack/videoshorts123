@@ -162,6 +162,78 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/business/library')
+    def business_library():
+        from business_library import init,inventory,KINDS
+        kind=request.args.get('kind','avatar')
+        if kind not in KINDS: abort(400)
+        cat=request.args.get('category','')[:80]
+        status=request.args.get('status','all')
+        if status not in ('all','free','reserved','used','archived'): abort(400)
+        page=max(1,request.args.get('page',1,type=int))
+        db=connect(dbpath)
+        try:
+            init(db)
+            counts=inventory(db)
+            where='kind=?'; args=[kind]
+            if cat: where+=' AND category=?'; args.append(cat)
+            if status!='all': where+=' AND status=?'; args.append(status)
+            total=db.execute('SELECT count(*) FROM business_materials WHERE '+where,args).fetchone()[0]
+            page=min(page,max(1,(total+49)//50))
+            rows=[{**dict(row),'payload':json.loads(row['payload'])} for row in db.execute('SELECT * FROM business_materials WHERE '+where+' ORDER BY id DESC LIMIT 50 OFFSET ?',(*args,(page-1)*50))]
+            categories=[x[0] for x in db.execute('SELECT DISTINCT category FROM business_materials WHERE kind=? ORDER BY category',(kind,))]
+            db.commit()
+        finally: db.close()
+        return render_template('business_library.html',rows=rows,counts=counts,kind=kind,category=cat,categories=categories,status=status,page=page,total=total,csrf=session['csrf'],message=request.args.get('message',''),error=request.args.get('error',''))
+
+    @app.post('/business/library/import')
+    def business_library_import():
+        from business_library import import_text,import_images
+        from business_factory import init as init_business,event
+        kind=request.form.get('kind','')
+        db=connect(dbpath)
+        try:
+            with lock:
+                if kind=='avatar':
+                    added,duplicates=import_images(db,root,request.files.getlist('files'),request.form.get('category',''))
+                else:
+                    upload=request.files.get('file')
+                    if not upload: raise ValueError('Выберите TXT')
+                    added,duplicates=import_text(db,upload.stream.read(2*1024*1024+1),kind)
+                with db:
+                    init_business(db)
+                    event(db,'library',f'Импорт {kind}: добавлено {added}, дубли {duplicates}')
+            return redirect(url_for('business_library',kind=kind,message=f'Добавлено: {added}. Дубликатов: {duplicates}.'),code=303)
+        except (ValueError,OSError) as exc:
+            return redirect(url_for('business_library',kind=kind if kind in ('avatar','profile','caption') else 'avatar',error=str(exc)),code=303)
+        finally: db.close()
+
+    @app.post('/business/library/<int:mid>/archive')
+    def business_library_archive(mid):
+        from business_library import init,archive
+        db=connect(dbpath)
+        try:
+            init(db)
+            row=db.execute('SELECT kind FROM business_materials WHERE id=?',(mid,)).fetchone()
+            if not row: abort(404)
+            if not archive(db,mid,request.form.get('restore')=='1'): abort(409,'Материал занят или уже использован')
+            return redirect(url_for('business_library',kind=row['kind']),code=303)
+        finally: db.close()
+
+    @app.get('/business/library/avatar/<int:mid>')
+    def business_avatar(mid):
+        from business_library import init
+        db=connect(dbpath)
+        try:
+            init(db)
+            row=db.execute("SELECT payload FROM business_materials WHERE id=? AND kind='avatar'",(mid,)).fetchone()
+        finally: db.close()
+        if not row: abort(404)
+        folder=(assets/'business-avatars').resolve()
+        path=(folder/json.loads(row['payload'])['file']).resolve()
+        if not path.is_relative_to(folder) or not path.is_file(): abort(404)
+        return send_file(path,mimetype='image/png',conditional=True)
+
     @app.get('/business')
     def business():
         from business_factory import state
