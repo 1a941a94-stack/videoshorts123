@@ -7,6 +7,13 @@ from pathlib import Path
 from source_media import stage,probe
 from filelock import FileLock
 
+def is_video_message(msg):
+    if not msg or not getattr(msg,'video',None) or getattr(msg,'gif',None): return False
+    doc=getattr(msg,'document',None)
+    if getattr(doc,'mime_type','')=='image/gif': return False
+    from telethon.tl.types import DocumentAttributeAnimated
+    return not any(isinstance(a,DocumentAttributeAnimated) for a in getattr(doc,'attributes',[]))
+
 def channel_name(value):
     value=value.strip().removeprefix('https://t.me/').removeprefix('@').rstrip('/')
     if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{4,31}',value):
@@ -51,7 +58,7 @@ def scan_channel(db,root,channel,limit=100,min_views=0,cursor=None):
             for i,msg in enumerate(c.iter_messages(entity,**opts),1):
                 newest=max(newest,msg.id)
                 if i%10==0: stage('telegram_scan',f'@{channel}: {i}/{limit}')
-                if not msg.video or getattr(msg,'noforwards',False): continue
+                if not is_video_message(msg) or getattr(msg,'noforwards',False): continue
                 duration=getattr(msg.file,'duration',0) or 0
                 views=msg.views or 0
                 clips=candidate({'duration':duration,'view_count':views},min_views)
@@ -124,7 +131,7 @@ def retrieve(root,vid,url,target):
             entity=c.get_entity(channel_name(parts[0]))
             if str(entity.id)!=match[1] or getattr(entity,'noforwards',False): raise ValueError('Source changed or restricts saving')
             msg=c.get_messages(entity,ids=int(match[2]))
-            if not msg or not msg.video or getattr(msg,'noforwards',False): raise ValueError('Video unavailable or restricted')
+            if not is_video_message(msg) or getattr(msg,'noforwards',False): raise ValueError('Video unavailable, animated GIF, or restricted')
             if (msg.file.size or 0)>100*1024**2: raise ValueError('Video exceeds size limit')
             stage('download','Telegram')
             with tempfile.TemporaryDirectory(dir=Path(target).parent) as folder:
