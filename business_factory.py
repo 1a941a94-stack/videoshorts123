@@ -37,6 +37,8 @@ def forecast(cfg):
     return dict(daily=daily,reserve=daily*cfg['reserve'],revenue=float(revenue),net=float(net),
         breakeven=cfg['delay']+ceil((cfg['investment']+cfg['daily_cost']*cfg['delay'])/net) if net>0 else None)
 def state(db,configs):
+    from business_library import inventory
+    materials=inventory(db)
     cfg=load(db)
     plan=forecast(cfg)
     ready=db.execute("SELECT count(*) FROM clips c WHERE status='done' AND output IS NOT NULL AND NOT EXISTS(SELECT 1 FROM publications p WHERE p.clip_id=c.id)").fetchone()[0]
@@ -45,5 +47,5 @@ def state(db,configs):
     pending=db.execute("SELECT count(*) FROM clips WHERE status='pending'").fetchone()[0]
     published=db.execute("SELECT count(*) FROM publications WHERE status='sent'").fetchone()[0]
     measured=db.execute('SELECT coalesce(sum(views),0),coalesce(sum(revenue_kopecks),0) FROM measurements').fetchone()
-    return dict(config=cfg,plan=plan,ready=ready,sources=sources,accounts=accounts,pending=pending,published=published,views=measured[0],revenue=measured[1]/100,
+    return dict(materials=materials,config=cfg,plan=plan,ready=ready,sources=sources,accounts=accounts,pending=pending,published=published,views=measured[0],revenue=measured[1]/100,
         missing=max(0,plan['reserve']-ready),configured=cfg['configuration'] in configs,events=[dict(x) for x in db.execute('SELECT * FROM business_events ORDER BY id DESC LIMIT 20')])
