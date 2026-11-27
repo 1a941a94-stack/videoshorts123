@@ -548,6 +548,17 @@ def create_app(root=ROOT):
                     record(db,'Производство занято',30)
                     continue
                 with FileLock(str(dbpath)+'.production.lock',timeout=0):
+                    # Plan opted-in publications locally; this never sends media.
+                    # The separate publisher retains its own explicit start/stop.
+                    from business_resources import state as resource_state
+                    if not any(resource_state(db)['over']):
+                        db.commit()
+                        queued=sync_ready(db)
+                        if queued:
+                            from business_factory import event
+                            with db: event(db,'publication',f'Запланировано публикаций: {queued}')
+                    else:
+                        db.commit()
                     task,detail,delay=decision(db,root,load(root)['items'])
                     db.commit()
                     if not task:
