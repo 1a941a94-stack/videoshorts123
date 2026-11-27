@@ -48,6 +48,8 @@ def state(db,configs):
     calendar=overview(db)
     from business_monetization import state as monetization_state
     monetization=monetization_state(db)
+    from factory_controller import state as controller_state
+    controller=controller_state(db)
     cfg=load(db)
     plan=forecast(cfg)
     ready=db.execute("SELECT count(*) FROM clips c WHERE status='done' AND output IS NOT NULL AND NOT EXISTS(SELECT 1 FROM publications p WHERE p.clip_id=c.id)").fetchone()[0]
@@ -56,5 +58,5 @@ def state(db,configs):
     pending=db.execute("SELECT count(*) FROM clips WHERE status='pending'").fetchone()[0]
     published=db.execute("SELECT count(*) FROM publications WHERE status='sent'").fetchone()[0]
     measured=db.execute('SELECT coalesce(sum(views),0),coalesce(sum(revenue_kopecks),0) FROM measurements').fetchone()
-    return dict(monetization=monetization,calendar=calendar,lifecycle=lifecycle,resources=resources,materials=materials,config=cfg,plan=plan,ready=ready,sources=sources,accounts=accounts,pending=pending,published=published,views=measured[0],revenue=measured[1]/100,
+    return dict(controller=controller,monetization=monetization,calendar=calendar,lifecycle=lifecycle,resources=resources,materials=materials,config=cfg,plan=plan,ready=ready,sources=sources,accounts=accounts,pending=pending,published=published,views=measured[0],revenue=measured[1]/100,
         missing=max(0,plan['reserve']-ready),configured=cfg['configuration'] in configs,events=[dict(x) for x in db.execute('SELECT * FROM business_events ORDER BY id DESC LIMIT 20')])
