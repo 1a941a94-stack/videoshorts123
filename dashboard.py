@@ -162,6 +162,34 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/business/monetization')
+    def business_monetization():
+        from business_monetization import state,campaigns
+        db=init(connect(dbpath))
+        try:
+            data=state(db)
+            db.commit()
+        finally: db.close()
+        return render_template('business_monetization.html',data=data,campaigns=campaigns(root),csrf=session['csrf'],error=request.args.get('error',''),message=request.args.get('message',''))
+
+    @app.post('/business/monetization/<operation>')
+    def business_monetization_action(operation):
+        from business_monetization import partner,terms,payout
+        from business_factory import init as init_business,event
+        if operation not in ('partner','terms','payout'): abort(404)
+        db=init(connect(dbpath))
+        try:
+            if operation=='partner': partner(db,request.form)
+            elif operation=='terms': terms(db,root,request.form)
+            else: payout(db,request.form)
+            with db:
+                init_business(db)
+                event(db,'monetization',{'partner':'Добавлен рекламный партнёр','terms':'Сохранены условия кампании','payout':'Учтена полученная выплата'}[operation])
+            return redirect(url_for('business_monetization',message='Сохранено'),code=303)
+        except (ValueError,KeyError,sqlite3.IntegrityError) as exc:
+            return redirect(url_for('business_monetization',error='Повторная запись' if isinstance(exc,sqlite3.IntegrityError) else str(exc)),code=303)
+        finally: db.close()
+
     @app.get('/business/calendar')
     def business_calendar():
         from business_calendar import calendar
