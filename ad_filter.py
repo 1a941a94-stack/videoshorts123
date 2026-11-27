@@ -66,7 +66,13 @@ def screen(source,duration,brands=(),speech=True,reference_dir=None,transcript=N
                         if visual_hits[name]>=2:
                             return 'rejected',f'Advertising reference {name} matched twice (score {score:.2f})'
                         findings.add(f'visual:{name}')
-                if qr.detect(frame)[0]: findings.add('qr')
+                detected,points=qr.detect(frame)
+                if detected and points is not None:
+                    try:
+                        decoded,_=qr.decode(frame,points)
+                    except (cv2.error,UnicodeError):
+                        decoded=''
+                    if decoded and decoded.strip(): findings.add('qr')
                 key=(frame.shape,hashlib.sha256(frame.tobytes()).digest())
                 if key not in ocr_cache:
                     if not cv2.imwrite(str(framepath),frame): raise RuntimeError('Cannot write OCR frame')
