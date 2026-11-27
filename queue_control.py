@@ -46,3 +46,27 @@ def queue_action(db,cid,action):
         elif action=='restore' and state=='cancelled':
             db.execute("UPDATE clips SET status='pending',run_id=NULL,updated=? WHERE id=?",(int(time.time()),cid))
         else: raise ValueError('Invalid task operation')
+
+
+def clear_discovered(db):
+    """Remove discovered candidates, not imported media, rendered clips or publication records."""
+    with db:
+        db.execute('BEGIN IMMEDIATE')
+        db.execute('CREATE TEMP TABLE clear_candidates(id INTEGER PRIMARY KEY)')
+        protected="AND NOT EXISTS (SELECT 1 FROM clip_versions v WHERE v.clip_id=c.id)"
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publications'").fetchone():
+            protected+=" AND NOT EXISTS (SELECT 1 FROM publications p WHERE p.clip_id=c.id)"
+        db.execute("""INSERT INTO clear_candidates SELECT c.id FROM clips c
+            WHERE substr(c.video_id,1,6)!='local_' AND c.output IS NULL
+            AND c.status IN ('pending','running','failed','ad_review','duplicate','ad_rejected','cancelled')
+            """+protected)
+        db.execute("""UPDATE production_runs SET status='stopped',finished=?,reason='Queue cleared'
+            WHERE status IN ('queued','paused','running')""",(int(time.time()),))
+        db.execute('DELETE FROM production_run_tasks WHERE clip_id IN (SELECT id FROM clear_candidates)')
+        db.execute('DELETE FROM fingerprints WHERE clip_id IN (SELECT id FROM clear_candidates)')
+        db.execute('UPDATE clips SET duplicate_of=NULL WHERE duplicate_of IN (SELECT id FROM clear_candidates)')
+        removed=db.execute('DELETE FROM clips WHERE id IN (SELECT id FROM clear_candidates)').rowcount
+        db.execute("""DELETE FROM videos WHERE substr(id,1,6)!='local_'
+            AND NOT EXISTS (SELECT 1 FROM clips c WHERE c.video_id=videos.id)""")
+        db.execute('DROP TABLE clear_candidates')
+        return removed
