@@ -70,3 +70,5 @@ button.danger-outline:hover:not(:disabled){background:#6b313a;color:#fff}
 #production-live{margin-bottom:18px}
 #production-live .live-job{margin-bottom:0}
 @media(max-width:700px){.source-block{padding:14px}.source-block .fields{grid-template-columns:1fr}#telegram .heading,#sources .heading{flex-wrap:wrap;gap:10px}}
+
+.account-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px}.account-card{border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}.account-card-heading{display:flex;align-items:center;gap:12px}.account-card-heading img,.account-avatar-placeholder{border-radius:50%;width:64px;height:64px;object-fit:cover}.account-avatar-placeholder{display:grid;place-items:center;background:var(--bg);font-size:24px}.account-card h4{margin:0;overflow-wrap:anywhere}.account-card dl{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px}.account-card dd{margin:0;overflow-wrap:anywhere;text-align:right}.account-card dt{color:var(--muted)}.account-bio{border-top:1px solid var(--line);padding:10px 0}.account-bio p{white-space:pre-wrap;overflow-wrap:anywhere}.account-card .actions{flex-wrap:wrap}
