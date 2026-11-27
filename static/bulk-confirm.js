@@ -1,1 +1,1 @@
-document.addEventListener('submit',event=>{const message=event.target.dataset.confirm;if(message&&!window.confirm(message))event.preventDefault();});
+document.addEventListener('submit',event=>{const message=event.target.dataset.confirm;if(!message)return;const field=event.target.elements.namedItem('confirm');if(!window.confirm(message)){if(field)field.value='0';event.preventDefault();return;}if(field)field.value='1';});
