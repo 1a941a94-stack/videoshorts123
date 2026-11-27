@@ -1,5 +1,7 @@
 """Storage maintenance. Never remove original imports or live outputs."""
 import shutil
+import time
+import logging
 from pathlib import Path
 
 def size(path):
@@ -23,7 +25,10 @@ def stats(root,db):
 
 def purge(db,root,ids):
     root=Path(root).resolve()
-    out=root/'output'
+    out=(root/'output').resolve()
+    if out != root/'output': raise ValueError('Недопустимая папка результатов')
+    ids=list(dict.fromkeys(ids))
+    if not ids: return 0
     marks=','.join('?' for _ in ids)
     rows=db.execute(f"SELECT id,output,cover,status FROM clips WHERE id IN ({marks})",ids).fetchall()
     if len(rows)!=len(ids) or any(r['status']!='archived' for r in rows): raise ValueError('Удалять окончательно можно только из корзины')
@@ -35,17 +40,33 @@ def purge(db,root,ids):
         for key in ('output','cover'):
             if r[key]:
                 p=(root/r[key]).resolve()
-                if not p.is_relative_to(out) or p.suffix not in ('.mp4','.jpg'): raise ValueError('Недопустимый путь')
+                if not p.is_relative_to(out) or p.is_relative_to(out/'source-cache') or p.suffix not in ('.mp4','.jpg'): raise ValueError('Недопустимый путь')
                 if db.execute('SELECT 1 FROM clips WHERE id!=? AND (output=? OR cover=?)',(r['id'],r[key],r[key])).fetchone(): raise ValueError('Файл используется другой записью')
                 if db.execute('SELECT 1 FROM clip_versions WHERE clip_id!=? AND (output=? OR cover=?)',(r['id'],r[key],r[key])).fetchone(): raise ValueError('Файл используется историей другого ролика')
                 paths.add(p)
+    # Check canonical paths too, including relative/absolute aliases.
+    for row in db.execute('SELECT id AS clip_id,output,cover FROM clips UNION ALL SELECT clip_id,output,cover FROM clip_versions'):
+        if row['clip_id'] not in ids and any((root/row[k]).resolve() in paths for k in ('output','cover') if row[k]):
+            raise ValueError('Файл используется другой записью')
     for p in paths: p.unlink(missing_ok=True)
     with db:
         db.execute(f'DELETE FROM clip_versions WHERE clip_id IN ({marks})',ids)
-        db.execute(f"UPDATE clips SET status='purged',output=NULL,cover=NULL,archived_status=NULL WHERE id IN ({marks})",ids)
+        db.execute(f"UPDATE clips SET status='purged',output=NULL,cover=NULL,archived_status=NULL,archived_at=NULL WHERE id IN ({marks})",ids)
     return len(rows)
 
 def clear_cache(root):
     cache=Path(root).resolve()/'output'/'source-cache'
     if cache.is_symlink(): raise ValueError('Недопустимый путь кеша')
     if cache.is_dir(): shutil.rmtree(cache)
+
+RETENTION_SECONDS=30*24*60*60
+
+def expire_trash(db,root,now=None):
+    """Caller must hold the production lock. Legacy archives have no expiry."""
+    cutoff=int(time.time() if now is None else now)-RETENTION_SECONDS
+    ids=[r[0] for r in db.execute("SELECT id FROM clips WHERE status='archived' AND archived_at IS NOT NULL AND archived_at<=? ORDER BY archived_at,id LIMIT 100",(cutoff,))]
+    removed=0
+    for cid in ids:
+        try: removed+=purge(db,root,[cid])
+        except (ValueError,OSError) as exc: logging.getLogger(__name__).warning("Trash retention skipped clip %s: %s",cid,exc)
+    return removed
