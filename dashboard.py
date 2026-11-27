@@ -162,6 +162,18 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/business/analytics')
+    def business_analytics():
+        from business_analytics import state,DIMENSIONS
+        days=request.args.get('days',30,type=int)
+        dimension=request.args.get('dimension','campaign')
+        if days not in (0,7,30,90): days=30
+        if dimension not in DIMENSIONS: dimension='campaign'
+        db=init(connect(dbpath))
+        try: data=state(db,days,dimension)
+        finally: db.close()
+        return render_template('business_analytics.html',data=data)
+
     @app.get('/business/finance')
     def business_finance():
         from business_finance import state
