@@ -23,12 +23,14 @@
  function show(){
   const hash=location.hash.slice(1);
   const key=lookup[hash]||'overview';
+  const trash=key==='results'&&new URLSearchParams(location.search).get('clip_status')==='archived';
   const view=views[key];
   for(const section of sections)section.hidden=!view.ids.includes(section.id);
-  title.textContent=view.title;
+  title.textContent=trash?'Корзина':view.title;
+  const refresh=document.getElementById('workspace-refresh');if(refresh)refresh.href=location.pathname+location.search+location.hash;
   requestAnimationFrame(()=>window.dispatchEvent(new Event('workspace-change')));
   for(const link of links){
-   const active=link.dataset.view===key;
+   const active=trash?link.dataset.view==='trash':link.dataset.view===key;
    link.classList.toggle('active',active);
    if(active)link.setAttribute('aria-current','page');
    else link.removeAttribute('aria-current');
