@@ -18,10 +18,14 @@ def encode(command,tail,output,cwd,mode=None,report=print):
     if mode not in ('cpu','auto','qsv'): raise ValueError('Invalid encoder')
     if mode!='cpu' and qsv_available():
         try:
-            subprocess.run([*command,*QSV,'-pix_fmt','nv12',*tail,str(output)],check=True,cwd=cwd,timeout=600)
+            subprocess.run([*command,*QSV,'-pix_fmt','nv12',*tail,str(output)],check=True,cwd=cwd,timeout=600,stderr=subprocess.PIPE)
             return 'qsv'
         except (subprocess.CalledProcessError,subprocess.TimeoutExpired):
             output.unlink(missing_ok=True)
             report('Quick Sync failed; falling back to CPU')
-    subprocess.run([*command,*CPU,'-pix_fmt','yuv420p',*tail,str(output)],check=True,cwd=cwd,timeout=600)
+    try:
+        subprocess.run([*command,*CPU,'-pix_fmt','yuv420p',*tail,str(output)],check=True,cwd=cwd,timeout=600,stderr=subprocess.PIPE)
+    except subprocess.CalledProcessError as exc:
+        detail=(exc.stderr or b'').decode('utf-8','replace').strip()
+        raise RuntimeError('FFmpeg: '+(detail[-850:] or f'exit code {exc.returncode}')) from exc
     return 'cpu'
