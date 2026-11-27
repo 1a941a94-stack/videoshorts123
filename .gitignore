@@ -44,3 +44,6 @@ benchmark-result.json
 performance.json
 
 run-configs.json
+
+telegram-proxy.json
+telegram-proxy.tmp
