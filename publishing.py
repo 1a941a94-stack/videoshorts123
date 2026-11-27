@@ -60,7 +60,7 @@ def sync_ready(db,now=None):
     count=0
     db.execute('BEGIN IMMEDIATE')
     with db:
-        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform IN ('telegram','instagram','instagram_browser','youtube') AND production_profile IS NOT NULL AND NOT EXISTS(SELECT 1 FROM account_lifecycle l WHERE l.account_id=accounts.id AND l.state='archived')").fetchall()
+        accounts=db.execute("SELECT * FROM accounts WHERE enabled=1 AND auto_queue=1 AND platform IN ('telegram','instagram','instagram_browser','youtube') AND production_profile IS NOT NULL AND NOT EXISTS(SELECT 1 FROM account_lifecycle l WHERE l.account_id=accounts.id AND (l.state IN ('archived','paused','review') OR (l.state='scheduled' AND l.start_at>?))) AND NOT EXISTS(SELECT 1 FROM publications p WHERE p.account_id=accounts.id AND p.status IN ('blocked','browser_blocked','uncertain','sending'))",(now,)).fetchall()
         for a in accounts:
             last=db.execute("SELECT max(scheduled) FROM publications WHERE account_id=? AND status IN ('approved','sending','sent','uploaded_private','uncertain')",(a['id'],)).fetchone()[0]
             slot=max(now,(last or 0)+a['interval_seconds'])
