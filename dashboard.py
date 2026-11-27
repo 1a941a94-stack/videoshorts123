@@ -88,6 +88,7 @@ def create_app(root=ROOT):
                     fp.seek(max(0,path.stat().st_size-65536))
                     log=fp.read().decode('utf-8','replace')
             action=job['action']
+            preview_active=preview_lock.locked()
         done=total=None
         stage=detail=''
         lines=[]
@@ -108,7 +109,7 @@ def create_app(root=ROOT):
             stats['videos']=db.execute('SELECT count(*) FROM videos').fetchone()[0]
             active=[dict(r) for r in db.execute("SELECT c.id,v.title FROM clips c JOIN videos v ON v.id=c.video_id WHERE c.status='running'")]
         finally: db.close()
-        response=jsonify(running=running,result=result,action=action,elapsed=elapsed,log_age=age,
+        response=jsonify(running=running,preview_active=preview_active,result=result,action=action,elapsed=elapsed,log_age=age,
             done=done,total=total,stage=stage,detail=detail,stats=stats,active=active,log='\n'.join(lines)[-18000:])
         response.headers['Cache-Control']='no-store'
         return response
@@ -279,7 +280,10 @@ def create_app(root=ROOT):
         from run_configs import load,resolve,write
         from production_runs import create,set_status
         with lock:
-            if (job['process'] and job['process'].poll() is None) or preview_lock.locked(): abort(409,'Production or preview active')
+            if job['process'] and job['process'].poll() is None:
+                return redirect(url_for('index',production_busy=job['action'] or 'job')+'#production-runs',code=303)
+            if preview_lock.locked():
+                return redirect(url_for('index',production_busy='preview')+'#production-runs',code=303)
             data=load(root)
             name=request.form.get('configuration','')
             try:
