@@ -346,6 +346,34 @@ def create_app(root=ROOT):
             job.update(process=proc,action='benchmark',log=log,started=time.time(),finished=None)
         return redirect(url_for('index')+'#performance')
 
+    @app.get('/api/telegram/proxy')
+    def telegram_proxy_state():
+        from telegram_proxy import load
+        data=load(root)
+        data['has_password']=bool(data.pop('password',''))
+        return jsonify(data)
+
+    @app.post('/telegram/proxy')
+    def telegram_proxy_save():
+        from telegram_proxy import save
+        from filelock import FileLock,Timeout
+        with lock:
+            if job['process'] and job['process'].poll() is None: return jsonify(error='Остановите текущую задачу'),409
+            try:
+                with FileLock(str(root/'telegram-reader.lock'),timeout=0):
+                    save(root,request.form)
+            except (ValueError,OSError,Timeout) as exc: return jsonify(error=str(exc)),400
+        return jsonify(ok=True)
+
+    @app.post('/telegram/proxy/check')
+    def telegram_proxy_check():
+        from telegram_proxy import check
+        try:
+            authorized=check(root)
+        except ValueError as exc: return jsonify(error=str(exc)),400
+        except Exception as exc: return jsonify(error='Подключение не удалось: '+type(exc).__name__),502
+        return jsonify(ok=True,authorized=authorized)
+
     @app.post('/telegram/channels')
     def telegram_channels_add():
         from telegram_source import add_channels
