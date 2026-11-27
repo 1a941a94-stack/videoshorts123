@@ -45,3 +45,24 @@ jobs:
         with:
           name: browser-failure
           path: browser-results
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install ruff bandit
+      - run: ruff check . --select E9,F63,F7,F82 --output-format github
+      - run: npm exec --yes --package=eslint@9 -- eslint "static/*.js"
+      - run: bandit -r . -x ./browser_tests -ll -ii -f json -o bandit-report.json
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-analysis
+          path: bandit-report.json
+          if-no-files-found: ignore
