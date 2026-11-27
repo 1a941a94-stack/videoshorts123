@@ -18,6 +18,6 @@
  }
  async function save(){await post('/telegram/proxy');await load();}
  f.addEventListener('submit',async e=>{e.preventDefault();try{await save();status.textContent='Настройки сохранены.';}catch(e){status.textContent=e.message;}});
- check.addEventListener('click',async()=>{check.disabled=true;status.textContent='Проверка подключения…';try{await save();const data=await post('/telegram/proxy/check');status.textContent=data.authorized?'Telegram подключён и авторизован.':'Соединение установлено. Выполните авторизацию через PowerShell.';}catch(e){status.textContent=e.message;}finally{check.disabled=false;}});
+ check.addEventListener('click',async()=>{check.disabled=true;status.textContent='Проверка подключения…';try{await save();await post('/telegram/proxy/check');status.textContent='TCP-соединение с Telegram установлено. Авторизацию проверьте через telegram_source.py login.';}catch(e){status.textContent=e.message;}finally{check.disabled=false;}});
  load().catch(e=>status.textContent=e.message);
 })();
