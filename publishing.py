@@ -27,6 +27,8 @@ def init(db):
         cols={r[1] for r in db.execute('PRAGMA table_info(accounts)')}
         for name,kind in [('production_profile','TEXT'),('auto_queue','INTEGER NOT NULL DEFAULT 0'),('caption_template',"TEXT NOT NULL DEFAULT ''")]:
             if name not in cols: db.execute(f'ALTER TABLE accounts ADD COLUMN {name} {kind}')
+    from account_lifecycle import init as init_lifecycle
+    with db: init_lifecycle(db)
     return db
 
 def add_account(db,name,platform,destination,token_env,topic='',daily_limit=2,interval_seconds=3600):
@@ -89,10 +91,11 @@ def claim(db,now):
         JOIN accounts a ON a.id=p.account_id JOIN clips c ON c.id=p.clip_id
         WHERE p.status='approved' AND a.enabled=1 AND p.scheduled<=? AND c.status='done'
         AND a.platform IN ('telegram','instagram','instagram_browser','youtube')
+        AND NOT EXISTS(SELECT 1 FROM account_lifecycle l WHERE l.account_id=a.id AND (l.state IN ('paused','review') OR (l.state='scheduled' AND l.start_at>?)))
         AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sending','uncertain','browser_blocked','blocked'))
         AND (SELECT count(*) FROM publications q WHERE q.account_id=a.id AND q.status IN ('sent','uploaded_private') AND q.updated>?)<a.daily_limit
         AND NOT EXISTS(SELECT 1 FROM publications q WHERE q.account_id=a.id AND q.status IN ('sent','uploaded_private') AND q.updated>?-a.interval_seconds)
-        ORDER BY p.scheduled,p.id LIMIT 1""",(now,now-86400,now)).fetchone()
+        ORDER BY p.scheduled,p.id LIMIT 1""",(now,now,now-86400,now)).fetchone()
         if row: db.execute("UPDATE publications SET status='sending',updated=? WHERE id=?",(now,row['id']))
         db.commit()
         return row
