@@ -162,6 +162,35 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/business/resources')
+    def business_resources():
+        from business_resources import state
+        db=connect(dbpath)
+        try:
+            data=state(db)
+            db.commit()
+        finally: db.close()
+        return render_template('business_resources.html',data=data,csrf=session['csrf'],message=request.args.get('message',''),error=request.args.get('error',''))
+
+    @app.post('/business/resources/<operation>')
+    def business_resource_action(operation):
+        from business_resources import add,budget,record,archive
+        from business_factory import init as init_business,event
+        if operation not in ('add','budget','record','archive'): abort(404)
+        db=connect(dbpath)
+        try:
+            if operation=='add': add(db,request.form)
+            elif operation=='budget': budget(db,request.form)
+            elif operation=='record': record(db,request.form)
+            else: archive(db,int(request.form.get('id','')))
+            with db:
+                init_business(db)
+                event(db,'resources',{'add':'Добавлена услуга','budget':'Обновлён бюджет','record':'Учтён фактический расход','archive':'Услуга архивирована'}[operation])
+            return redirect(url_for('business_resources',message='Сохранено'),code=303)
+        except (ValueError,sqlite3.IntegrityError) as exc:
+            return redirect(url_for('business_resources',error='Дублирующаяся запись' if isinstance(exc,sqlite3.IntegrityError) else str(exc)),code=303)
+        finally: db.close()
+
     @app.get('/business/accounts')
     def business_accounts():
         from business_accounts import init as init_accounts,rows
