@@ -45,6 +45,30 @@ def create_app(root=ROOT):
         if 'csrf' not in session: session['csrf']=secrets.token_hex(24)
         if request.method=='POST' and not secrets.compare_digest(request.form.get('csrf',''),session['csrf']): abort(403)
 
+    next_trash_check=0
+
+    @app.before_request
+    def trash_maintenance():
+        nonlocal next_trash_check
+        if time.monotonic()<next_trash_check: return
+        if not lock.acquire(blocking=False): return
+        try:
+            if time.monotonic()<next_trash_check: return
+            if (job['process'] and job['process'].poll() is None) or preview_lock.locked(): return
+            from filelock import FileLock,Timeout
+            from storage_control import expire_trash
+            try:
+                with FileLock(str(dbpath)+'.production.lock',timeout=0):
+                    db=connect(dbpath)
+                    try: expire_trash(db,root)
+                    finally: db.close()
+                    next_trash_check=time.monotonic()+3600
+            except Timeout: pass
+            except (OSError,sqlite3.Error):
+                app.logger.exception('Trash maintenance failed')
+                next_trash_check=time.monotonic()+3600
+        finally: lock.release()
+
     @app.get('/api/job-status')
     def job_status():
         with lock:
