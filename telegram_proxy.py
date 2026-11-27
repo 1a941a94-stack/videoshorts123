@@ -29,11 +29,16 @@ def connection_options(root):
     return {'proxy':dict(proxy_type=cfg['type'],addr=cfg['host'],port=int(cfg['port']),rdns=True,username=cfg.get('username') or None,password=cfg.get('password') or None)}
 
 def check(root):
-    from telegram_source import client
-    from filelock import FileLock
-    with FileLock(str(Path(root)/'telegram-reader.lock'),timeout=0):
-        c=client(root)
-        try:
-            c.connect()
-            return c.is_user_authorized()
-        finally: c.disconnect()
+    """Check transport independently of the persistent Telegram session."""
+    import socket
+    cfg=load(root)
+    target='149.154.167.51'
+    if cfg['type']=='direct':
+        sock=socket.create_connection((target,443),timeout=10)
+    else:
+        from python_socks.sync import Proxy
+        from python_socks import ProxyType
+        proxy=Proxy.create(proxy_type=ProxyType.SOCKS5 if cfg['type']=='socks5' else ProxyType.HTTP,host=cfg['host'],port=int(cfg['port']),username=cfg.get('username') or None,password=cfg.get('password') or None,rdns=True)
+        sock=proxy.connect(dest_host=target,dest_port=443,timeout=10)
+    sock.close()
+    return True
