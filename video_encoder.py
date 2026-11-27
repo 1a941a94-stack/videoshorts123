@@ -15,11 +15,12 @@ def qsv_available():
 
 def encode(command,tail,output,cwd,mode=None,report=print):
     range_flags=['-color_range','tv'] if '-filter_complex' in command and 'setparams=range=limited' in command[command.index('-filter_complex')+1] else []
+    metadata_flags=['-map_metadata','-1','-map_metadata:s:v','-1','-map_metadata:s:a','-1','-map_chapters','-1']
     mode=mode or os.getenv('CLIP_ENCODER','cpu')
     if mode not in ('cpu','auto','qsv'): raise ValueError('Invalid encoder')
     if mode!='cpu' and qsv_available():
         try:
-            subprocess.run([*command,*QSV,'-pix_fmt','nv12',*range_flags,*tail,str(output)],check=True,cwd=cwd,timeout=600,stderr=subprocess.PIPE)
+            subprocess.run([*command,*QSV,'-pix_fmt','nv12',*range_flags,*tail,*metadata_flags,str(output)],check=True,cwd=cwd,timeout=600,stderr=subprocess.PIPE)
             from quality import inspect
             video=next((s for s in inspect(output).get('streams',[]) if s.get('codec_type')=='video'),{})
             if video.get('codec_name')!='h264' or video.get('pix_fmt')!='yuv420p':
@@ -30,7 +31,7 @@ def encode(command,tail,output,cwd,mode=None,report=print):
             output.unlink(missing_ok=True)
             report('Quick Sync failed; falling back to CPU')
     try:
-        subprocess.run([*command,*CPU,'-pix_fmt','yuv420p',*range_flags,*tail,str(output)],check=True,cwd=cwd,timeout=600,stderr=subprocess.PIPE)
+        subprocess.run([*command,*CPU,'-pix_fmt','yuv420p',*range_flags,*tail,*metadata_flags,str(output)],check=True,cwd=cwd,timeout=600,stderr=subprocess.PIPE)
     except subprocess.CalledProcessError as exc:
         detail=(exc.stderr or b'').decode('utf-8','replace').strip()
         raise RuntimeError('FFmpeg: '+(detail[-850:] or f'exit code {exc.returncode}')) from exc
