@@ -975,7 +975,7 @@ def create_app(root=ROOT):
                             if action=='archive':
                                 db.execute("UPDATE clips SET archived_status=status,status='archived',archived_at=? WHERE id=?",(int(time.time()),row['id']))
                             elif action=='restore':
-                                db.execute("UPDATE clips SET status=coalesce(archived_status,'pending'),archived_status=NULL WHERE id=?",(row['id'],))
+                                db.execute("UPDATE clips SET status=coalesce(archived_status,'pending'),archived_status=NULL,archived_at=NULL WHERE id=?",(row['id'],))
                             else:
                                 db.execute("UPDATE clips SET status='pending',attempts=0,error=NULL,updated=? WHERE id=?",(int(time.time()),row['id']))
             except Timeout: abort(409,'Stop production before changing queue')
