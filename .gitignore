@@ -47,3 +47,5 @@ run-configs.json
 
 telegram-proxy.json
 telegram-proxy.tmp
+
+business-reports.lock
