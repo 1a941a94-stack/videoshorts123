@@ -71,6 +71,16 @@ def refresh(db):
         db.execute('DELETE FROM proxy6_inventory')
         db.executemany('INSERT INTO proxy6_inventory VALUES(?,?,?,?,?)',rows.values())
         db.execute('INSERT OR REPLACE INTO proxy6_snapshot VALUES(1,?,?,?)',(amount,currency,int(time.time())))
+        from business_resources import init as init_resources
+        init_resources(db)
+        now=int(time.time())
+        for pid,version,country,expires,active in rows.values():
+            name='PROXY6 #'+pid
+            db.execute("""INSERT INTO business_services(supplier,name,kind,expires,status,created)
+                VALUES('PROXY6',?,'network',?,'active',?)
+                ON CONFLICT(supplier,name) DO UPDATE SET expires=excluded.expires""",(name,expires,now))
+        # Missing provider records are not deleted: historical expenses remain linked.
+
     return len(rows)
 
 def state(db):
