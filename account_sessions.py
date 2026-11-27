@@ -3,6 +3,8 @@ import os
 from pathlib import Path
 
 def describe(root, account):
+    if account.get('lifecycle')=='archived':
+        return 'Архив'
     platform=account['platform']
     if platform=='youtube':
         from youtube_publish import credentials_path
@@ -21,8 +23,6 @@ def describe(root, account):
         present=bool(os.getenv(account['token_env'],'').strip())
     else:
         return 'Адаптер не подключён'
-    if account.get('lifecycle')=='archived':
-        return 'Архив'
     if account.get('issues'):
         return 'Требуется проверка владельцем'
     return 'Локальные данные есть; вход не проверен' if present else 'Требуется подключение'

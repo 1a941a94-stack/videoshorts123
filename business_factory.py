@@ -52,9 +52,9 @@ def state(db,configs):
     controller=controller_state(db)
     cfg=load(db)
     plan=forecast(cfg)
-    ready=db.execute("SELECT count(*) FROM clips c WHERE status='done' AND output IS NOT NULL AND NOT EXISTS(SELECT 1 FROM publications p WHERE p.clip_id=c.id)").fetchone()[0]
+    ready=db.execute("SELECT count(*) FROM clips c WHERE status='done' AND output IS NOT NULL AND NOT EXISTS(SELECT 1 FROM publications p WHERE p.clip_id=c.id AND p.status!='cancelled')").fetchone()[0]
     sources=db.execute('SELECT count(*) FROM sources WHERE enabled=1').fetchone()[0]+db.execute('SELECT count(*) FROM telegram_channels WHERE enabled=1').fetchone()[0]
-    accounts=db.execute("SELECT count(*) FROM accounts WHERE enabled=1 AND platform IN ('telegram','instagram','youtube')").fetchone()[0]
+    accounts=db.execute("SELECT count(*) FROM accounts a WHERE enabled=1 AND platform IN ('telegram','instagram','youtube','instagram_browser') AND NOT EXISTS(SELECT 1 FROM account_lifecycle l WHERE l.account_id=a.id AND (l.state IN ('archived','paused','review') OR (l.state='scheduled' AND l.start_at>CAST(strftime('%s','now') AS INTEGER)))) AND NOT EXISTS(SELECT 1 FROM publications p WHERE p.account_id=a.id AND p.status IN ('blocked','browser_blocked','uncertain'))").fetchone()[0]
     pending=db.execute("SELECT count(*) FROM clips WHERE status='pending'").fetchone()[0]
     published=db.execute("SELECT count(*) FROM publications WHERE status='sent'").fetchone()[0]
     measured=db.execute('SELECT coalesce(sum(views),0),coalesce(sum(revenue_kopecks),0) FROM measurements').fetchone()
