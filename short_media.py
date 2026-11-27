@@ -98,6 +98,7 @@ def render_short(source,duration,output,banner=None,*,template=None,background_p
                 caption_style=spec_style
             prepare(source,0,duration,folder,style=caption_style,words=words)
             vf=vf.removesuffix('[v]')+'[pre];[pre]ass=captions.ass[v]'
+        vf=vf.removesuffix('[v]')+'[composited];[composited]scale=1080:1920,setsar=1,format=yuv420p[v]'
         stage('render',layout)
         audio=['-af','loudnorm=I=-16:TP=-1.5:LRA=11','-ar','48000','-b:a','160k'] if (normalize if normalize is not None else os.getenv('CLIP_NORMALIZE_AUDIO','1')=='1') else []
         cmd+=['-filter_complex_threads','1','-filter_complex',vf,'-map','[v]','-map','0:a?',
