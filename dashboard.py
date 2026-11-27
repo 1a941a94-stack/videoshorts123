@@ -162,6 +162,67 @@ def create_app(root=ROOT):
             benchmark=read_json(root/'benchmark-result.json',{}),encoder=read_json(performance,{}).get('encoder','cpu'),
             production_profiles=__import__('production_profiles').load(root),short_profiles=__import__('short_templates').load(root),backgrounds=sorted(p.name for p in (assets/'backgrounds').glob('*') if p.suffix.lower() in ('.jpg','.mp4','.webm','.mov','.gif')),ad_refs=sorted(p.stem for p in (assets/'ad-references').glob('*.png')),campaigns=read_json(campaigns,{'campaigns':[]})['campaigns'],settings={**DEFAULTS,**read_json(config,{})})
 
+    @app.get('/business')
+    def business():
+        from business_factory import state
+        from run_configs import load
+        db=connect(dbpath)
+        try:
+            init(db)
+            configs=load(root)['items']
+            data=state(db,configs)
+            db.commit()
+        finally: db.close()
+        return render_template('business.html',data=data,configs=configs,csrf=session['csrf'],error=request.args.get('error',''))
+
+    @app.post('/business/settings')
+    def business_settings():
+        from business_factory import save
+        from run_configs import load
+        db=connect(dbpath)
+        try:
+            save(db,request.form,load(root)['items'])
+        except (ValueError,KeyError) as exc:
+            return redirect(url_for('business',error=str(exc)),code=303)
+        finally: db.close()
+        return redirect(url_for('business'),code=303)
+
+    @app.post('/business/start')
+    def business_start():
+        from business_factory import state,event
+        from run_configs import load,resolve
+        from production_runs import create,set_status
+        from diagnostics import readiness
+        from filelock import FileLock,Timeout
+        with lock:
+            if (job['process'] and job['process'].poll() is None) or preview_lock.locked():
+                return redirect(url_for('business',error='Производство уже занято'),code=303)
+            db=connect(dbpath)
+            try:
+                init(db)
+                configs=load(root)['items']
+                data=state(db,configs)
+                if not data['configured']: raise ValueError('Сохраните настройки завода')
+                if not data['missing']: raise ValueError('Целевой запас уже заполнен')
+                item=configs[data['config']['configuration']]
+                if not data['pending'] and (not item['auto_search'] or not data['sources']):
+                    raise ValueError('Добавьте исходники или включите поиск в конфигурации')
+                issues=[x['name'] for x in readiness(root,item['mode']) if x['required'] and not x['ok']]
+                if issues: raise ValueError('Не готова система: '+', '.join(issues))
+                snap=resolve(root,item)
+                snap['name']='Бизнес-завод: '+data['config']['configuration']
+                with FileLock(str(dbpath)+'.production.lock',timeout=0):
+                    run_id=create(db,min(1000,data['missing']),snap)
+                    with db: event(db,'production','Запрошена партия #'+str(run_id))
+                try: launch_run(run_id)
+                except OSError as exc:
+                    set_status(db,run_id,'failed',str(exc))
+                    raise
+            except (ValueError,KeyError,OSError,Timeout) as exc:
+                return redirect(url_for('business',error=str(exc)),code=303)
+            finally: db.close()
+        return redirect(url_for('business'),code=303)
+
     @app.get('/api/queue')
     def queue_state():
         from queue_control import explain
