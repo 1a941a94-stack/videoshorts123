@@ -18,7 +18,7 @@ def verify(path,expected_duration,require_audio=False):
     audio=[s for s in streams if s.get('codec_type')=='audio']
     if len(video)!=1 or len(audio)>1: raise ValueError('Unexpected output streams')
     v=video[0]
-    if (v.get('width'),v.get('height'))!=(1080,1920) or v.get('codec_name')!='h264' or v.get('pix_fmt')!='yuv420p': raise ValueError('Output is not compatible vertical H264')
+    if (v.get('width'),v.get('height'))!=(1080,1920) or v.get('codec_name')!='h264' or v.get('pix_fmt')!='yuv420p': raise ValueError(f"Output is not compatible vertical H264: {v.get('width')}x{v.get('height')}, codec={v.get('codec_name')}, pix_fmt={v.get('pix_fmt')}")
     duration=float(data['format']['duration'])
     if not math.isfinite(duration) or abs(duration-expected_duration)>max(.5,expected_duration*.025): raise ValueError('Rendered duration differs from source')
     if require_audio and not audio: raise ValueError('Original audio missing')
