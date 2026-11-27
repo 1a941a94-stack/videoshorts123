@@ -181,6 +181,43 @@ def create_app(root=ROOT):
             return jsonify(items=items,counts=counts)
         finally: db.close()
 
+    @app.post('/queue/clear')
+    def queue_clear():
+        from filelock import FileLock,Timeout
+        if request.form.get('confirm')!='1': abort(400,'Подтвердите очистку')
+        with lock:
+            if (job['process'] and job['process'].poll() is None) or preview_lock.locked():
+                return redirect(url_for('index',clear_busy=1)+'#queue',code=303)
+            try:
+                with FileLock(str(dbpath)+'.production.lock',timeout=0):
+                    db=connect(dbpath)
+                    try:
+                        from queue_control import clear_discovered
+                        removed=clear_discovered(db)
+                    finally: db.close()
+            except Timeout:
+                return redirect(url_for('index',clear_busy=1)+'#queue',code=303)
+        return redirect(url_for('index',queue_removed=removed)+'#queue',code=303)
+
+    @app.post('/sources/clear-active')
+    def clear_active_sources():
+        from filelock import FileLock,Timeout
+        if request.form.get('confirm')!='1': abort(400,'Подтвердите удаление')
+        with lock:
+            if (job['process'] and job['process'].poll() is None) or preview_lock.locked():
+                return redirect(url_for('index',clear_busy=1)+'#telegram',code=303)
+            try:
+                with FileLock(str(dbpath)+'.production.lock',timeout=0):
+                    db=connect(dbpath)
+                    try:
+                        with db:
+                            n=db.execute('DELETE FROM sources WHERE enabled=1').rowcount
+                            n+=db.execute('DELETE FROM telegram_channels WHERE enabled=1').rowcount
+                    finally: db.close()
+            except Timeout:
+                return redirect(url_for('index',clear_busy=1)+'#telegram',code=303)
+        return redirect(url_for('index',sources_removed=n)+'#telegram',code=303)
+
     @app.post('/queue/<int:cid>/<operation>')
     def queue_manage(cid,operation):
         from queue_control import retry_task,queue_action
