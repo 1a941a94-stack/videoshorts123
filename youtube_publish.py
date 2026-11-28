@@ -29,6 +29,30 @@ def verify(api,channel):
     ids={item['id'] for item in data.get('items',[])}
     if channel_id(channel) not in ids: raise ValueError('OAuth channel does not match configured destination')
 
+def read_video_status(api,channel,video_id):
+    if not re.fullmatch(r'[A-Za-z0-9_-]{11}',video_id): raise ValueError('Invalid video ID')
+    verify(api,channel)
+    data=api.videos().list(part='snippet,status',id=video_id).execute(num_retries=0)
+    items=data.get('items',[])
+    if len(items)!=1 or items[0].get('id')!=video_id or items[0].get('snippet',{}).get('channelId')!=channel:
+        return 'unknown','Видео не найдено в указанном канале'
+    status=items[0].get('status',{})
+    upload=status.get('uploadStatus')
+    privacy=status.get('privacyStatus')
+    if upload=='processed' and privacy=='public': return 'public','Публичная публикация подтверждена'
+    if upload=='processed' and privacy in ('private','unlisted'): return privacy,'Видео обработано, но не является публичным'
+    if upload in ('failed','rejected','deleted'): return 'unavailable','Видео недоступно или отклонено'
+    return 'processing','Обработка или состояние видео не подтверждены'
+
+def inspect_publication(root,channel,video_id):
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    from google_auth_httplib2 import AuthorizedHttp
+    import httplib2
+    creds=Credentials.from_authorized_user_file(str(credentials_path(root,channel)),SCOPES)
+    api=build('youtube','v3',http=AuthorizedHttp(creds,http=httplib2.Http(timeout=15)),cache_discovery=False)
+    return read_video_status(api,channel,video_id)
+
 class UploadBlocked(Exception):
     """No video insertion request attempted."""
 

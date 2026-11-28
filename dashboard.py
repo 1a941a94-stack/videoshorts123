@@ -1432,9 +1432,9 @@ def create_app(root=ROOT):
         db=init(connect(dbpath))
         try:
             accounts=db.execute('SELECT * FROM accounts ORDER BY id').fetchall()
-            drafts=db.execute("""SELECT p.*,a.name account_name,c.campaign,m.views,m.accepted_views,m.revenue_kopecks
+            drafts=db.execute("""SELECT p.*,a.name account_name,a.platform,c.campaign,m.views,m.accepted_views,m.revenue_kopecks,pc.remote_state,pc.detail check_detail
                 FROM publications p JOIN accounts a ON a.id=p.account_id JOIN clips c ON c.id=p.clip_id
-                LEFT JOIN measurements m ON m.publication_id=p.id ORDER BY p.id DESC LIMIT 200""").fetchall()
+                LEFT JOIN measurements m ON m.publication_id=p.id LEFT JOIN publication_checks pc ON pc.publication_id=p.id ORDER BY p.id DESC LIMIT 200""").fetchall()
             ready=db.execute("SELECT id FROM clips WHERE status='done' ORDER BY id DESC LIMIT 200").fetchall()
             totals=db.execute("SELECT coalesce(sum(views),0),coalesce(sum(accepted_views),0),coalesce(sum(revenue_kopecks),0) FROM measurements").fetchone()
             return render_template('publishing.html',accounts=accounts,drafts=drafts,ready=ready,totals=totals,csrf=session['csrf'],publisher_running=publisher['process'] is not None and publisher['process'].poll() is None,profiles=__import__('production_profiles').load(root))
@@ -1458,6 +1458,9 @@ def create_app(root=ROOT):
                 enqueue(db,int(request.form['account']),int(request.form['clip']),request.form['caption'],int(request.form.get('scheduled') or time.time()))
             elif action=='approve':
                 if not approve(db,int(request.form['id'])): abort(409)
+            elif action=='reconcile':
+                from publishing import reconcile_youtube
+                reconcile_youtube(db,root,int(request.form['id']))
             elif action=='measure':
                 measure(db,int(request.form['id']),int(request.form['views']),int(request.form['accepted']),int(request.form['kopecks']))
             elif action=='stop':

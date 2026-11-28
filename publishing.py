@@ -17,6 +17,7 @@ def init(db):
       scheduled INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'draft',
       updated INTEGER NOT NULL, remote_id TEXT, url TEXT, error TEXT,
       UNIQUE(account_id,clip_id));
+    CREATE TABLE IF NOT EXISTS publication_checks(publication_id INTEGER PRIMARY KEY REFERENCES publications(id), checked INTEGER NOT NULL, remote_state TEXT NOT NULL, detail TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS measurements(
       publication_id INTEGER PRIMARY KEY REFERENCES publications(id),
       views INTEGER NOT NULL DEFAULT 0, accepted_views INTEGER NOT NULL DEFAULT 0,
@@ -158,6 +159,25 @@ def send_one(db,root,sender=None):
         # A network failure may occur after remote acceptance: never blindly resend.
         with db: db.execute("UPDATE publications SET status='uncertain',error='Upload outcome needs manual reconciliation',updated=? WHERE id=?",(int(time.time()),row['id']))
     return True
+
+def reconcile_youtube(db,root,pid,reader=None):
+    """Read remote status without changing visibility or uploading media."""
+    from youtube_publish import inspect_publication
+    row=db.execute("""SELECT p.*,a.platform,a.destination FROM publications p JOIN accounts a ON a.id=p.account_id
+        WHERE p.id=? AND a.platform='youtube' AND p.status IN ('uploaded_private','sent') AND p.remote_id IS NOT NULL""",(pid,)).fetchone()
+    if not row: raise ValueError('No eligible YouTube upload')
+    try: remote,detail=(reader or inspect_publication)(root,row['destination'],row['remote_id'])
+    except Exception: remote,detail='unknown','YouTube API недоступен; результат не подтверждён'
+    with db:
+        db.execute("""CREATE TABLE IF NOT EXISTS publication_checks(
+            publication_id INTEGER PRIMARY KEY REFERENCES publications(id), checked INTEGER NOT NULL,
+            remote_state TEXT NOT NULL, detail TEXT NOT NULL)""")
+        db.execute("INSERT OR REPLACE INTO publication_checks VALUES(?,?,?,?)",(pid,int(time.time()),remote,detail))
+        if remote=='public':
+            db.execute("UPDATE publications SET status='sent' WHERE id=? AND status='uploaded_private' AND remote_id=?",(pid,row['remote_id']))
+        elif remote in ('private','unlisted','unavailable'):
+            db.execute("UPDATE publications SET status='uploaded_private' WHERE id=? AND status='sent' AND remote_id=?",(pid,row['remote_id']))
+    return remote,detail
 
 def measure(db,pid,views,accepted,revenue):
     if not 0<=accepted<=views or revenue<0: raise ValueError('Invalid measurement')
