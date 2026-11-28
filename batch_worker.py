@@ -6,6 +6,12 @@ from pathlib import Path
 from production_runs import summary,record,set_status,apply
 from source_media import stage
 
+def recover_tasks(db,run_id):
+    """Reconcile durable clip state under the exclusive production lock."""
+    with db:
+        db.execute("UPDATE clips SET status=CASE WHEN attempts<3 THEN 'pending' ELSE 'failed' END,error='Interrupted production task',updated=CAST(strftime('%s','now') AS INTEGER) WHERE run_id=? AND status='running'",(run_id,))
+        db.execute("INSERT INTO production_run_tasks(run_id,clip_id,status,updated) SELECT run_id,id,status,updated FROM clips WHERE run_id=? AND status IN ('pending','done','failed','duplicate','ad_review','ad_rejected') ON CONFLICT(run_id,clip_id) DO UPDATE SET status=excluded.status,updated=excluded.updated",(run_id,))
+
 def run(db,root,out,run_id,settings):
     from pipeline import claim,process,scan
     root=Path(root).resolve()
@@ -19,9 +25,7 @@ def run(db,root,out,run_id,settings):
     stop=root/'factory.stop'
     scanned=0
     max_scans=3
-    with db:
-        db.execute("UPDATE clips SET status=CASE WHEN attempts<3 THEN 'pending' ELSE 'failed' END,error='Interrupted production task',updated=CAST(strftime('%s','now') AS INTEGER) WHERE run_id=? AND status='running'",(run_id,))
-        db.execute("INSERT INTO production_run_tasks(run_id,clip_id,status,updated) SELECT run_id,id,status,updated FROM clips WHERE run_id=? AND status IN ('done','failed','duplicate','ad_review','ad_rejected') ON CONFLICT(run_id,clip_id) DO UPDATE SET status=excluded.status,updated=excluded.updated",(run_id,))
+    recover_tasks(db,run_id)
     set_status(db,run_id,'running')
     try:
         while True:

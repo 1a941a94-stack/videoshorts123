@@ -20,7 +20,7 @@ jobs:
       - name: Verify business pages and controller
         run: docker compose -f compose.business.yaml exec -T factory python /app/deployment_smoke.py
       - name: Verify actual local media rendering in production image
-        run: docker compose -f compose.business.yaml exec -T -w /app factory python -m unittest -v test_montage_e2e test_render_visual
+        run: docker compose -f compose.business.yaml exec -T -w /app factory python -m unittest -v test_montage_e2e test_render_visual test_batch_recovery
       - name: Verify restart and persistent storage
         run: |
           docker compose -f compose.business.yaml restart factory
