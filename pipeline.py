@@ -41,6 +41,9 @@ def connect(path):
         cols={r[1] for r in db.execute('PRAGMA table_info(clips)')}
         for name,kind in [('campaign','TEXT'),('peak','REAL'),('rank','REAL'),('actual_start','REAL'),('actual_end','REAL'),('boundary_method','TEXT'),('mode',"TEXT NOT NULL DEFAULT 'long'"),('authorized','INTEGER NOT NULL DEFAULT 0'),('duplicate_of','INTEGER'),('duplicate_kind','TEXT'),('ad_result','TEXT'),('production_profile','TEXT'),('cover','TEXT'),('cover_error','TEXT'),('quality_result','TEXT'),('archived_status','TEXT'),('archived_at','INTEGER'),('task_snapshot','TEXT'),('run_id','INTEGER'),('priority','INTEGER NOT NULL DEFAULT 0')]:
             if name not in cols: db.execute(f'ALTER TABLE clips ADD COLUMN {name} {kind}')
+        for table in ('sources','telegram_channels'):
+            if 'auto_allowed' not in {r[1] for r in db.execute(f'PRAGMA table_info({table})')}:
+                db.execute(f'ALTER TABLE {table} ADD COLUMN auto_allowed INTEGER NOT NULL DEFAULT 0')
         from production_runs import init
         init(db)
         from clip_versions import init as init_versions
@@ -101,14 +104,14 @@ def inspect_video(db, entry, settings, extractor=extract, mode='long'):
             (vid,c['start'],c['end'],c['score'],now,c.get('peak'),c.get('rank'),mode,vid,c['end'],c['start']))
     return status
 
-def scan(db, settings, finder=discover, extractor=extract, mode='long'):
+def scan(db, settings, finder=discover, extractor=extract, mode='long', *, approved_only=False):
     counts = {}
-    sources=db.execute("SELECT * FROM sources WHERE enabled=1").fetchall()
+    sources=db.execute("SELECT * FROM sources WHERE enabled=1"+(" AND auto_allowed=1 AND coalesce(last_scan,0)<=? ORDER BY coalesce(last_scan,0),id LIMIT 3" if approved_only else ""), (int(time.time())-3600,) if approved_only else ()).fetchall()
     print(f'CF_PROGRESS 0 {len(sources)}',flush=True)
     for i,src in enumerate(sources,1):
         print('CF_STAGE '+json.dumps({'stage':'search','detail':src['query']},ensure_ascii=True),flush=True)
         try:
-            entries = finder(src['query'], settings['limit'])
+            entries = finder(src['query'], min(settings['limit'],10) if approved_only else settings['limit'])
             for j,entry in enumerate(entries,1):
                 if not entry: continue
                 print('CF_STAGE '+json.dumps({'stage':'inspect','detail':f'{src["query"]} · {j}/{len(entries)}'},ensure_ascii=True),flush=True)
@@ -118,6 +121,8 @@ def scan(db, settings, finder=discover, extractor=extract, mode='long'):
             with db:
                 db.execute("UPDATE sources SET last_scan=? WHERE id=?", (int(time.time()),src['id']))
         except Exception as exc:
+            if approved_only:
+                with db: db.execute('UPDATE sources SET last_scan=? WHERE id=?',(int(time.time()),src['id']))
             print(json.dumps({'source':src['query'],'error':str(exc)},ensure_ascii=False))
         print(f'CF_PROGRESS {i} {len(sources)}',flush=True)
     return counts

@@ -85,9 +85,9 @@ def add_channels(db,values,limit=100,min_views=0):
             db.execute("INSERT OR IGNORE INTO telegram_channels(name,history,min_views) VALUES(?,?,?)",(name,limit,min_views))
     return len(names)
 
-def scan_library(db,root,full=False):
+def scan_library(db,root,full=False,*,approved_only=False):
     from telethon.errors import FloodWaitError
-    rows=db.execute("SELECT * FROM telegram_channels WHERE enabled=1 ORDER BY coalesce(last_scan,0),name").fetchall()
+    rows=db.execute("SELECT * FROM telegram_channels WHERE enabled=1"+(" AND auto_allowed=1 AND coalesce(last_scan,0)<=?" if approved_only else "")+" ORDER BY coalesce(last_scan,0),name"+(" LIMIT 3" if approved_only else ""), (int(time.time())-3600,) if approved_only else ()).fetchall()
     failures=0
     try: credentials()
     except ValueError as exc:
@@ -99,11 +99,11 @@ def scan_library(db,root,full=False):
         name=row['name']
         try:
             stage('telegram_scan',f'@{name} · {i}/{len(rows)}')
-            count,newest=scan_channel(db,root,name,row['history'],row['min_views'],None if full else row['cursor'])
+            count,newest=scan_channel(db,root,name,min(row['history'],30) if approved_only else row['history'],row['min_views'],None if full else row['cursor'])
             with db:
                 db.execute("UPDATE telegram_channels SET cursor=max(coalesce(cursor,0),?),last_scan=?,found=found+?,error=NULL WHERE name=?",(newest,int(time.time()),count,name))
         except FloodWaitError as exc:
-            with db: db.execute("UPDATE telegram_channels SET error=? WHERE name=?",(f'Telegram rate limit: {exc.seconds}s',name))
+            with db: db.execute("UPDATE telegram_channels SET error=?,last_scan=? WHERE name=?",(f'Telegram rate limit: {exc.seconds}s',int(time.time())+max(0,exc.seconds-3600),name))
             stage('error',f'Telegram rate limit: {exc.seconds}s; stopped')
             return 1
         except Exception as exc:

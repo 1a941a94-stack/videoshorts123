@@ -60,13 +60,16 @@ def decision(db,root,configs):
         if result['errors'] or result['added']:
             from business_factory import event
             with db: event(db,'intake',f"Входящие материалы: добавлено {result['added']}, ошибок {result['errors']}")
-    if not pending: return None,'Нет исходников; добавьте разрешённые видео в incoming-media и включите автопоиск для короткого режима',300
+    now=int(time.time())
+    remote=bool(item.get('auto_search') and (db.execute('SELECT 1 FROM sources WHERE enabled=1 AND auto_allowed=1 AND coalesce(last_scan,0)<=? LIMIT 1',(now-3600,)).fetchone() or (item['mode']=='short' and db.execute('SELECT 1 FROM telegram_channels WHERE enabled=1 AND auto_allowed=1 AND coalesce(last_scan,0)<=? LIMIT 1',(now-3600,)).fetchone())))
+    if not pending and not remote: return None,'Ожидание разрешённых исходников или следующего сканирования',300
     from run_configs import resolve
     snap=resolve(root,item)
     # This controller only consumes the existing authorized production queue.
-    snap['auto_search']=False
+    snap['auto_search']=remote
+    snap['approved_sources_only']=True
     snap['name']='Автопополнение резерва'
-    return (min(1000,missing,pending),snap),'Подготовлена производственная партия',60
+    return (min(1000,missing,missing if remote else pending),snap),'Подготовлена производственная партия',60
 
 
 def interrupted_run(db,root,current):

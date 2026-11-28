@@ -939,6 +939,24 @@ def create_app(root=ROOT):
         finally: db.close()
         return redirect(url_for('index')+'#sources')
 
+    @app.post('/sources/<int:sid>/auto-allow')
+    def source_auto_allow(sid):
+        db=connect(dbpath)
+        try:
+            with db:
+                if not db.execute("UPDATE sources SET auto_allowed=? WHERE id=?",(int(request.form.get('allowed')=='1'),sid)).rowcount: abort(404)
+        finally: db.close()
+        return redirect(url_for('index')+'#sources',code=303)
+
+    @app.post('/telegram/channels/<name>/auto-allow')
+    def telegram_auto_allow(name):
+        db=connect(dbpath)
+        try:
+            with db:
+                if not db.execute("UPDATE telegram_channels SET auto_allowed=? WHERE name=?",(int(request.form.get('allowed')=='1'),name)).rowcount: abort(404)
+        finally: db.close()
+        return redirect(url_for('index')+'#telegram',code=303)
+
     @app.post('/sources/<int:sid>/toggle')
     def toggle(sid):
         db=connect(dbpath)

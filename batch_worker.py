@@ -24,7 +24,7 @@ def run(db,root,out,run_id,settings):
     goal=batch['goal']
     stop=root/'factory.stop'
     scanned=0
-    max_scans=3
+    max_scans=1 if config.get('approved_sources_only') else 3
     recover_tasks(db,run_id)
     set_status(db,run_id,'running')
     try:
@@ -47,10 +47,10 @@ def run(db,root,out,run_id,settings):
                 while config.get('auto_search') and scanned<max_scans and not stop.exists():
                     scanned+=1
                     before=db.execute("SELECT count(*) FROM clips WHERE mode=? AND status='pending'",(mode,)).fetchone()[0]
-                    scan(db,settings,mode=mode)
+                    scan(db,settings,mode=mode,**({'approved_only':True} if config.get('approved_sources_only') else {}))
                     if mode=='short' and db.execute('SELECT 1 FROM telegram_channels WHERE enabled=1 LIMIT 1').fetchone():
                         from telegram_source import scan_library
-                        try: scan_library(db,root)
+                        try: scan_library(db,root,**({'approved_only':True} if config.get('approved_sources_only') else {}))
                         except Exception as exc: stage('telegram_scan',str(exc)[:300])
                     after=db.execute("SELECT count(*) FROM clips WHERE mode=? AND status='pending'",(mode,)).fetchone()[0]
                     if after>before:
