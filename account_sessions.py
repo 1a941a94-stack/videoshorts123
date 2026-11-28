@@ -81,3 +81,35 @@ def check_connection(root, account):
         return True,'OAuth и ID канала подтверждены'
     except Exception:
         return False,'API недоступен или подключение не подтверждено; проверьте настройки'
+
+
+def init_checks(db):
+    db.execute("""CREATE TABLE IF NOT EXISTS account_connection_checks(
+        account_id INTEGER PRIMARY KEY REFERENCES accounts(id),
+        checked INTEGER NOT NULL, ok INTEGER NOT NULL, detail TEXT NOT NULL,
+        last_success INTEGER)""")
+
+
+def save_check(db,aid,ok,detail):
+    import time
+    now=int(time.time())
+    with db:
+        init_checks(db)
+        db.execute("""INSERT INTO account_connection_checks(account_id,checked,ok,detail,last_success)
+        VALUES(?,?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET
+        checked=excluded.checked,ok=excluded.ok,detail=excluded.detail,
+        last_success=coalesce(excluded.last_success,account_connection_checks.last_success)""",
+        (aid,now,int(ok),detail[:300],now if ok else None))
+
+
+def decorate_checks(db,accounts):
+    from datetime import datetime,timezone
+    init_checks(db)
+    def label(value):
+        return datetime.fromtimestamp(value,timezone.utc).strftime('%Y-%m-%d %H:%M UTC') if value is not None else '—'
+    for account in accounts:
+        row=db.execute('SELECT * FROM account_connection_checks WHERE account_id=?',(account['id'],)).fetchone()
+        account['connection_check']=None if row is None else dict(
+            ok=bool(row['ok']),detail=row['detail'],checked=label(row['checked']),
+            last_success=label(row['last_success']))
+    return accounts

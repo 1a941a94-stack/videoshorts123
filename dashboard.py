@@ -355,7 +355,8 @@ def create_app(root=ROOT):
             accounts=rows(db,offset=(page-1)*100)
             from account_lifecycle import decorate
             decorate(db,accounts)
-            from account_sessions import describe,instructions
+            from account_sessions import describe,instructions,decorate_checks
+            decorate_checks(db,accounts)
             for account in accounts:
                 account['session_status']=describe(root,account)
                 account['session_instructions']=instructions(account)
@@ -397,6 +398,11 @@ def create_app(root=ROOT):
             account=dict(row)
         finally: db.close()
         ok,detail=check_connection(root,account)
+        from account_sessions import save_check
+        db=init(connect(dbpath))
+        try:
+            save_check(db,aid,ok,detail)
+        finally: db.close()
         return redirect(url_for('business_accounts',**{'message' if ok else 'error':detail}),code=303)
 
     @app.post('/business/accounts/<int:aid>/lifecycle')
