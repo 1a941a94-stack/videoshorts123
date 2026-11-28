@@ -53,6 +53,24 @@ def inspect_publication(root,channel,video_id):
     api=build('youtube','v3',http=AuthorizedHttp(creds,http=httplib2.Http(timeout=15)),cache_discovery=False)
     return read_video_status(api,channel,video_id)
 
+def read_statistics(root,channel,video_id):
+    if not re.fullmatch(r'[A-Za-z0-9_-]{11}',video_id): raise ValueError('Invalid video ID')
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    from google_auth_httplib2 import AuthorizedHttp
+    import httplib2
+    creds=Credentials.from_authorized_user_file(str(credentials_path(root,channel)),SCOPES)
+    api=build('youtube','v3',http=AuthorizedHttp(creds,http=httplib2.Http(timeout=15)),cache_discovery=False)
+    verify(api,channel)
+    items=api.videos().list(part='snippet,status,statistics',id=video_id).execute(num_retries=0).get('items',[])
+    if len(items)!=1 or items[0].get('id')!=video_id or items[0].get('snippet',{}).get('channelId')!=channel:
+        raise ValueError('Video not confirmed')
+    item=items[0]
+    if item.get('status',{}).get('privacyStatus')!='public' or item.get('status',{}).get('uploadStatus')!='processed':
+        raise ValueError('Not public')
+    stats=item.get('statistics',{})
+    return {k:int(stats[v]) if v in stats else None for k,v in [('views','viewCount'),('likes','likeCount'),('comments','commentCount')]}
+
 class UploadBlocked(Exception):
     """No video insertion request attempted."""
 

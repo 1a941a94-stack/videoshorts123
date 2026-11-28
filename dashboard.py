@@ -184,10 +184,15 @@ def create_app(root=ROOT):
             time.sleep(60)
             db=None
             try:
-                if os.environ.get('CLIP_REPORT_ENABLED','0')!='1': continue
+                reports=os.environ.get('CLIP_REPORT_ENABLED','0')=='1'
+                stats=os.environ.get('CLIP_STATS_ENABLED','0')=='1'
+                if not reports and not stats: continue
                 with FileLock(str(root/'business-reports.lock'),timeout=0):
                     db=init(connect(dbpath))
-                    tick(db,root)
+                    if stats:
+                        from platform_statistics import collect
+                        collect(db,root)
+                    if reports: tick(db,root)
             except Timeout: pass
             except Exception:
                 # Do not log exception text: HTTP errors can contain the bot token.

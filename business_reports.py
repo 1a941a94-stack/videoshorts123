@@ -54,12 +54,14 @@ def report(db,now):
     target=forecast(load(db))['reserve']
     controller=state(db)
     issues=db.execute("SELECT count(*) FROM publications WHERE status IN ('blocked','browser_blocked','uncertain')").fetchone()[0]
+    from platform_statistics import totals
+    platform=totals(db)
     return '\n'.join([
         'ClipFactory — ежедневная сводка',start.strftime('%d.%m.%Y'),
         f'Готовые ролики за день: {produced}',f'Отправлено за день: {sent}',
         f'Выплаты за день: {rub(paid)}',f'Расходы за день: {rub(spent)}',
         f'Денежный результат: {rub(paid-spent)}',
-        f'Учтённые просмотры всего: {views}',f'Учтённые начисления всего: {rub(accrued)}',
+        f'Просмотры по API YouTube: {platform["views"]} (роликов: {platform["publications"]})',f'Учтённые просмотры всего: {views}',f'Учтённые начисления всего: {rub(accrued)}',
         f'Свободный резерв: {ready}/{target}',f'Публикации на проверке: {issues}',
         'Автопополнение: '+('включено' if controller['enabled'] else 'остановлено'),
         'Дневные показатели роликов и отправок — по дате обновления; финансы — по дате записи.'
