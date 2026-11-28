@@ -524,6 +524,8 @@ def create_app(root=ROOT):
             try:
                 enable(db,operation=='start')
                 current=state(db)
+                if operation=='start':
+                    (root/'publication.stop').unlink(missing_ok=True)
                 if operation=='stop':
                     (root/'publication.stop').touch()
                     if current['run_id'] is not None and job.get('run_id')==current['run_id'] and job['process'] and job['process'].poll() is None:
@@ -546,6 +548,20 @@ def create_app(root=ROOT):
                 current=state(db)
                 db.commit()
                 if not current['enabled'] or current['next_check']>time.time(): continue
+                from business_resources import state as resource_state
+                allowed=not any(resource_state(db)['over'])
+                db.commit()
+                if allowed and not (root/'publication.stop').exists() and not (publisher['process'] and publisher['process'].poll() is None):
+                    due=db.execute("SELECT 1 FROM publications WHERE status='approved' AND scheduled<=? LIMIT 1",(int(time.time()),)).fetchone()
+                    if due:
+                        try:
+                            with FileLock(str(root/'publication.lock'),timeout=0):
+                                pass
+                        except Timeout:
+                            pass
+                        else:
+                            with (root/'publication-job.log').open('ab') as fp:
+                                publisher['process']=subprocess.Popen([sys.executable,'-u',str(ROOT/'publishing.py'),'--root',str(root),'factory-send'],cwd=root,stdout=fp,stderr=subprocess.STDOUT)
                 if (job['process'] and job['process'].poll() is None) or preview_lock.locked():
                     record(db,'Производство занято',30)
                     continue

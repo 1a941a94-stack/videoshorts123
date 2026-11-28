@@ -168,6 +168,7 @@ def main():
     a=sub.add_parser('draft'); a.add_argument('account',type=int); a.add_argument('clip',type=int); a.add_argument('caption'); a.add_argument('--scheduled',type=int,default=0)
     a=sub.add_parser('approve'); a.add_argument('id',type=int)
     sub.add_parser('send')
+    sub.add_parser('factory-send')
     sub.add_parser('stop')
     sub.add_parser('sync')
     sub.add_parser('run')
@@ -183,7 +184,7 @@ def main():
         elif args.action=='approve': print(approve(db,args.id))
         elif args.action=='stop': (root/'publication.stop').touch()
         elif args.action=='sync': print(sync_ready(db))
-        elif args.action in ('send','run'):
+        elif args.action in ('send','run','factory-send'):
             with FileLock(str(root/'publication.lock'),timeout=0):
                 with db: db.execute("UPDATE publications SET status='uncertain',error='Interrupted upload; reconcile manually' WHERE status='sending'")
                 stop=root/'publication.stop'
@@ -191,8 +192,15 @@ def main():
                 # Never clear it here: a stop may have arrived during startup.
                 while not stop.exists():
                     if args.action=='run': sync_ready(db)
-                    while not stop.exists() and send_one(db,root): pass
-                    if args.action=='send': break
+                    while not stop.exists():
+                        if args.action=='factory-send':
+                            from factory_controller import state as controller_state
+                            from business_resources import state as resource_state
+                            allowed=controller_state(db)['enabled'] and not any(resource_state(db)['over'])
+                            db.commit()
+                            if not allowed: break
+                        if not send_one(db,root): break
+                    if args.action in ('send','factory-send'): break
                     for _ in range(30):
                         if stop.exists(): break
                         time.sleep(1)
