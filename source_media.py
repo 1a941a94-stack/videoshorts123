@@ -59,18 +59,38 @@ def pauses(source,lo,hi):
             start=None
     return points
 
-def boundaries(start,end,peak,duration,points,sentences=()):
-    """Prefer sentence boundaries, then silence. Preserve peak; avoid unbounded extension."""
+def boundaries(start,end,peak,duration,points,sentences=(),*,sentence_starts=None,sentence_ends=None,words=()):
+    """Score both edges, excluding cuts through recognized words."""
     if not 0<=start<end<=duration or not start<=peak<=end: raise ValueError('Invalid clip interval')
     target=end-start
     minimum=min(20,target)
     maximum=max(75,target)
-    starts=[(start,0)]+[(p,1) for p in points if start-8<=p<=start+5]+[(p,2) for p in sentences if start-8<=p<=start+5]
-    ends=[(end,0)]+[(p,1) for p in points if end-4<=p<=end+15]+[(p,2) for p in sentences if end-4<=p<=end+15]
-    candidates=[(a,b,qa,qb) for a,qa in starts for b,qb in ends if 0<=a<=peak<=b<=duration and minimum<=b-a<=maximum]
+    sentence_starts=sentences if sentence_starts is None else sentence_starts
+    sentence_ends=sentences if sentence_ends is None else sentence_ends
+    starts=[(start,0)]+[(p,1) for p in points if start-8<=p<=start+5]+[(p,2) for p in sentence_starts if start-8<=p<=start+5]
+    ends=[(end,0)]+[(p,1) for p in points if end-4<=p<=end+15]+[(p,2) for p in sentence_ends if end-4<=p<=end+15]
+    def safe(p):
+        return not any(a<p<b for a,b in words)
+    candidates=[(a,b,qa,qb) for a,qa in starts for b,qb in ends
+                if 0<=a<=peak<=b<=duration and minimum<=b-a<=maximum and safe(a) and safe(b)]
     if not candidates: return start,end,'unadjusted'
-    a,b,qa,qb=min(candidates,key=lambda c:(-c[3],-c[2],abs(c[0]-start)+abs(c[1]-end)))
+    a,b,qa,qb=min(candidates,key=lambda c:(-min(c[2],c[3]),-(c[2]+c[3]),-c[3],abs(c[0]-start)+abs(c[1]-end)))
     return round(a,3),round(b,3),'sentence' if qa==2 or qb==2 else 'pause' if qa or qb else 'unadjusted'
+
+
+def speech_edges(words,lo,hi):
+    """Keep sentence endings and beginnings separate; never pad into adjacent speech."""
+    starts,ends,intervals=[],[],[]
+    valid=[(max(lo,lo+a),min(hi,lo+b),w) for a,b,w in words if 0<=a<b and lo+a<hi]
+    for i,(a,b,w) in enumerate(valid):
+        intervals.append((a,b))
+        if w.rstrip('»”"').endswith(('.','!','?','…')):
+            next_a=valid[i+1][0] if i+1<len(valid) else hi
+            gap=max(0,next_a-b)
+            ends.append(min(hi,b+min(.12,gap/2)))
+            if i+1<len(valid):
+                starts.append(max(lo,next_a-min(.12,gap/2)))
+    return starts,ends,intervals
 
 def refine(source,start,end,peak):
     duration=probe(source)
@@ -81,17 +101,14 @@ def refine(source,start,end,peak):
     stage('boundaries','Analyzing speech boundaries')
     try: points=pauses(source,lo,hi)
     except subprocess.SubprocessError: points=[]
-    sentences=[]
+    starts,ends,intervals=[],[],[]
     if os.getenv('CLIP_SMART_SPEECH','0')=='1':
         stage('speech','Local Whisper boundary analysis')
         from captions import transcribe
         with tempfile.TemporaryDirectory() as folder:
             words=transcribe(source,lo,hi,Path(folder)/'audio.wav')
-        for i,(a,b,w) in enumerate(words):
-            if w.rstrip('»”"').endswith(('.','!','?','…')):
-                sentences.append(min(hi,lo+b+.12))
-                if i+1<len(words): sentences.append(max(lo,lo+words[i+1][0]-.12))
-    a,b,method=boundaries(start,end,peak,duration,points,sentences)
+        starts,ends,intervals=speech_edges(words,lo,hi)
+    a,b,method=boundaries(start,end,peak,duration,points,sentence_starts=starts,sentence_ends=ends,words=intervals)
     stage('boundaries',f'{a:.1f}–{b:.1f} s / {method}')
     return a,b,method
 
