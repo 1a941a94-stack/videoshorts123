@@ -25,7 +25,7 @@ jobs:
         run: |
           docker compose -f compose.business.yaml restart factory
           docker compose -f compose.business.yaml up -d --wait --wait-timeout 240
-          docker compose -f compose.business.yaml exec -T factory python /app/deployment_smoke.py
+          docker compose -f compose.business.yaml exec -T factory python /app/deployment_smoke.py --restart
       - name: Container diagnostics
         if: always()
         run: |

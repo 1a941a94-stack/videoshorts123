@@ -4,6 +4,8 @@ import re
 import urllib.parse
 import urllib.request
 import sqlite3
+import sys
+import json
 from pathlib import Path
 
 from google.oauth2.credentials import Credentials
@@ -36,6 +38,20 @@ for path in ('/healthz', '/', '/business', '/business/accounts', '/business/cale
     print('HTTP OK', path)
 token = re.search(r'name="csrf" value="([^"]+)"', get('/business')).group(1)
 assert controller() == 0
+if '--restart' in sys.argv:
+    with sqlite3.connect('/data/clipfactory.sqlite3') as db:
+        config = json.loads(db.execute('SELECT config FROM business_settings WHERE id=1').fetchone()[0])
+        assert config['configuration'] == 'ci-smoke', config
+    print('Configuration and stopped controller survived restart')
+    url = post('/business/controller/start', token)
+    try:
+        assert 'error=' not in url, url
+        assert controller() == 1
+    finally:
+        post('/business/controller/stop', token)
+    assert controller() == 0
+    print('Controller can start and stop after restart')
+    sys.exit(0)
 # An unconfigured installation must refuse to start.
 url = post('/business/controller/start', token)
 assert 'error=' in url, url
