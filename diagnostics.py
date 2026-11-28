@@ -38,3 +38,35 @@ def readiness(root,mode='short'):
     free=shutil.disk_usage(root).free
     add('Свободное место',free>=3*1024**3,f'{free/1024**3:.1f} ГиБ свободно; минимум 3 ГиБ')
     return result
+
+
+def factory_preflight(db, root, configs):
+    """Local checks only; no external requests or credential disclosure."""
+    from business_factory import load
+    from business_resources import state as resources
+    from account_lifecycle import init as lifecycle_init
+    from account_sessions import describe
+    cfg=load(db)
+    item=configs.get(cfg['configuration'])
+    checks=[]
+    def add(name, ok, detail, required=True):
+        checks.append(dict(name=name,ok=bool(ok),detail=detail,required=required))
+    add('Конфигурация монтажа',item,'Сохранена' if item else 'Выберите конфигурацию')
+    if item:
+        checks.extend(readiness(root,item['mode']))
+    res=resources(db)
+    add('Бюджет',not any(res['over']),'Лимит достигнут' if any(res['over']) else 'Лимиты не превышены')
+    add('Срок услуг',not res['expired'],f"Истекло услуг: {res['expired']}",False)
+    lifecycle_init(db)
+    accounts=[dict(r) for r in db.execute("""SELECT a.*, l.state AS lifecycle,
+        EXISTS(SELECT 1 FROM publications p WHERE p.account_id=a.id AND p.status IN ('blocked','browser_blocked','uncertain')) AS issues
+        FROM accounts a LEFT JOIN account_lifecycle l ON l.account_id=a.id
+        WHERE a.enabled=1 AND a.platform IN ('telegram','instagram','youtube')
+        AND (l.state IS NULL OR l.state NOT IN ('archived','paused','review'))
+        AND (l.state IS NULL OR l.state!='scheduled' OR l.start_at<=CAST(strftime('%s','now') AS INTEGER))""")]
+    connected=sum(describe(root,a)=='Локальные данные есть; вход не проверен' for a in accounts)
+    add('Подключения API',connected>0,f'Локальные данные: {connected} из {len(accounts)}; удалённый вход не проверен',False)
+    if item:
+        pending=db.execute("SELECT count(*) FROM clips WHERE status='pending' AND mode=?",(item['mode'],)).fetchone()[0]
+        add('Исходники выбранного режима',pending>0,f'В очереди: {pending}',False)
+    return checks

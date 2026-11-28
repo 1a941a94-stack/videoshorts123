@@ -499,6 +499,8 @@ def create_app(root=ROOT):
             init(db)
             configs=load(root)['items']
             data=state(db,configs)
+            from diagnostics import factory_preflight
+            data['preflight']=factory_preflight(db,root,configs)
             db.commit()
         finally: db.close()
         return render_template('business.html',data=data,configs=configs,csrf=session['csrf'],error=request.args.get('error',''))
@@ -522,6 +524,13 @@ def create_app(root=ROOT):
         with lock:
             db=connect(dbpath)
             try:
+                if operation=='start':
+                    from diagnostics import factory_preflight
+                    from run_configs import load
+                    init(db)
+                    issues=[x['name'] for x in factory_preflight(db,root,load(root)['items']) if x['required'] and not x['ok']]
+                    if issues:
+                        return redirect(url_for('business',error='Не готова система: '+', '.join(issues)),code=303)
                 enable(db,operation=='start')
                 current=state(db)
                 if operation=='start':
