@@ -45,6 +45,18 @@ def login(root,handle):
         verify_account(page,handle)
         print('Instagram session verified')
 
+def manual_login_window(root,handle):
+    """Open a visible login window; the owner enters all credentials and closes it."""
+    from playwright.sync_api import TimeoutError
+    with browser(root,handle) as page:
+        page.goto('https://www.instagram.com/accounts/login/',wait_until='domcontentloaded',timeout=60000)
+        try: page.wait_for_event('close',timeout=300000)
+        except TimeoutError: pass
+
+def verify_session(root,handle):
+    with browser(root,handle) as page:
+        verify_account(page,handle)
+
 def publish(root,row,path):
     handle=username(row['destination'])
     if len(row['caption'])>2200: raise BrowserBlocked('Caption too long')
@@ -79,5 +91,7 @@ if __name__=='__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('username')
     parser.add_argument('--root',type=Path,default=Path(__file__).resolve().parent)
+    parser.add_argument('--manual-window',action='store_true')
     args=parser.parse_args()
-    login(args.root,args.username)
+    if args.manual_window: manual_login_window(args.root,args.username)
+    else: login(args.root,args.username)

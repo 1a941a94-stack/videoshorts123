@@ -29,6 +29,7 @@ def create_app(root=ROOT):
     lock=threading.Lock()
     preview_lock=threading.Lock()
     publisher={'process':None}
+    manual_login={'process':None}
     job={'process':None,'action':None,'log':None,'started':None,'finished':None}
 
     def read_json(path,default):
@@ -407,6 +408,21 @@ def create_app(root=ROOT):
         try:
             row=db.execute('SELECT * FROM accounts WHERE id=?',(aid,)).fetchone()
             if not row: abort(404)
+            if operation=='login':
+                lifecycle=db.execute('SELECT state FROM account_lifecycle WHERE account_id=?',(aid,)).fetchone()
+                if row['platform']!='instagram_browser' or (lifecycle and lifecycle['state']=='archived'):
+                    raise ValueError('Ручной вход недоступен')
+                from instagram_browser import username
+                handle=username(row['destination'])
+                with lock:
+                    if manual_login['process'] and manual_login['process'].poll() is None:
+                        raise ValueError('Сначала закройте открытое окно входа')
+                    save_check(db,aid,False,'Выполняется ручной вход; необходима повторная проверка')
+                    try:
+                        manual_login['process']=subprocess.Popen([sys.executable,str(ROOT/'instagram_browser.py'),handle,'--root',str(root),'--manual-window'],cwd=root,stdin=subprocess.DEVNULL)
+                    except OSError:
+                        raise ValueError('Не удалось открыть окно входа')
+                return redirect(url_for('business_account_setup',aid=aid,message='Окно входа запущено. Войдите вручную, закройте окно и проверьте сессию.'),code=303)
             if operation=='check':
                 lifecycle=db.execute('SELECT state FROM account_lifecycle WHERE account_id=?',(aid,)).fetchone()
                 if row['platform'] not in SUPPORTED or (lifecycle and lifecycle['state']=='archived'):

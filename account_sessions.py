@@ -41,9 +41,19 @@ def instructions(account):
     }.get(p,'Подключение не поддерживается')
 
 def check_connection(root, account):
-    """Read-only API verification; never creates a post or clears a restriction."""
+    """Read-only connection verification; never creates a post or clears a restriction."""
     import requests
     platform=account['platform']
+    if platform=='instagram_browser':
+        try:
+            from instagram_browser import username,verify_session
+            handle=username(account['destination'])
+            folder=Path(root)/'instagram-sessions'/handle/'browser'
+            if not folder.is_dir(): return False,'Сначала выполните ручной вход Instagram'
+            verify_session(root,handle)
+            return True,'Сессия Instagram и имя аккаунта подтверждены'
+        except Exception:
+            return False,'Сессия Instagram не подтверждена; завершите вход или проверку вручную'
     if platform not in ('telegram','youtube','instagram'):
         return False,'Удалённая проверка для этого адаптера пока недоступна'
     try:
