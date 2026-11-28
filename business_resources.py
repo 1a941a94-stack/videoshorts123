@@ -48,20 +48,28 @@ def record(db,form):
         init(db)
         if not db.execute('SELECT 1 FROM business_services WHERE id=?',(sid,)).fetchone(): raise ValueError('Услуга не найдена')
         db.execute('INSERT INTO business_expenses(service_id,amount,created,note,reference) VALUES(?,?,?,?,?)',(sid,amount,int(time.time()),note,ref))
+def budget_health(limits,spent):
+    """Amounts are integer kopecks; zero limits mean unlimited."""
+    return [dict(remaining=max(0,l-s) if l else None,
+                 percent=round(100*s/l,1) if l else None,
+                 warning=bool(l and s*100>=l*80),
+                 exhausted=bool(l and s>=l))
+            for l,s in zip(limits,spent)]
+
 def state(db):
     init(db)
     now=int(time.time())
-    today=datetime.now(timezone.utc).replace(hour=0,minute=0,second=0,microsecond=0)
+    today=datetime.fromtimestamp(now,timezone.utc).replace(hour=0,minute=0,second=0,microsecond=0)
     month=today.replace(day=1)
     limits=db.execute('SELECT daily,monthly FROM business_budget WHERE id=1').fetchone() or (0,0)
-    spent=[db.execute('SELECT coalesce(sum(amount),0) FROM business_expenses WHERE created>=?',(int(start.timestamp()),)).fetchone()[0] for start in (today,month)]
+    spent=[db.execute('SELECT coalesce(sum(amount),0) FROM business_expenses WHERE created>=? AND created<=?',(int(start.timestamp()),now)).fetchone()[0] for start in (today,month)]
     services=[]
     for row in db.execute('SELECT * FROM business_services ORDER BY id DESC'):
         item=dict(row)
         item['health']='archived' if item['status']=='archived' else 'expired' if item['expires'] and item['expires']<=now else 'soon' if item['expires'] and item['expires']<=now+7*86400 else 'active'
         item['expiry_date']=datetime.fromtimestamp(item['expires']-1,timezone.utc).strftime('%Y-%m-%d') if item['expires'] else '—'
         services.append(item)
-    return dict(services=services,limits=list(limits),spent=spent,over=[bool(l and s>=l) for l,s in zip(limits,spent)],expired=sum(x['health']=='expired' for x in services),soon=sum(x['health']=='soon' for x in services),expenses=[dict(x) for x in db.execute('SELECT e.*,s.name FROM business_expenses e JOIN business_services s ON s.id=e.service_id ORDER BY e.id DESC LIMIT 100')])
+    return dict(services=services,limits=list(limits),spent=spent,budget_health=budget_health(limits,spent),over=[bool(l and s>=l) for l,s in zip(limits,spent)],expired=sum(x['health']=='expired' for x in services),soon=sum(x['health']=='soon' for x in services),expenses=[dict(x) for x in db.execute('SELECT e.*,s.name FROM business_expenses e JOIN business_services s ON s.id=e.service_id ORDER BY e.id DESC LIMIT 100')])
 def archive(db,sid):
     with db:
         init(db)
