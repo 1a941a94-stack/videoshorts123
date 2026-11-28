@@ -371,6 +371,58 @@ def create_app(root=ROOT):
         finally: db.close()
         return render_template('business_accounts.html',accounts=accounts,total=total,page=page,csrf=session['csrf'],message=request.args.get('message',''),error=request.args.get('error',''))
 
+    @app.route('/business/accounts/setup',methods=['GET','POST'])
+    def business_account_setup():
+        from account_setup import create,SUPPORTED
+        from account_sessions import instructions,describe,decorate_checks
+        from production_profiles import load
+        db=init(connect(dbpath))
+        try:
+            if request.method=='POST':
+                try: aid=create(db,request.form)
+                except (ValueError,sqlite3.IntegrityError) as exc:
+                    return redirect(url_for('business_account_setup',error=str(exc)),code=303)
+                return redirect(url_for('business_account_setup',aid=aid),code=303)
+            aid=request.args.get('aid',type=int)
+            account=None
+            if aid is not None:
+                row=db.execute('SELECT * FROM accounts WHERE id=?',(aid,)).fetchone()
+                if not row: abort(404)
+                account=dict(row)
+                lifecycle=db.execute('SELECT state FROM account_lifecycle WHERE account_id=?',(aid,)).fetchone()
+                account['lifecycle']=lifecycle['state'] if lifecycle else 'new'
+                account['instructions']=instructions(account)
+                account['session_status']=describe(root,account)
+                decorate_checks(db,[account])
+                db.commit()
+            return render_template('account_setup.html',account=account,profiles=load(root),supported=SUPPORTED,csrf=session['csrf'],error=request.args.get('error',''),message=request.args.get('message',''))
+        finally: db.close()
+
+    @app.post('/business/accounts/setup/<int:aid>/<operation>')
+    def business_account_setup_action(aid,operation):
+        from account_setup import activate,SUPPORTED
+        from account_sessions import check_connection,save_check
+        from production_profiles import load
+        db=init(connect(dbpath))
+        try:
+            row=db.execute('SELECT * FROM accounts WHERE id=?',(aid,)).fetchone()
+            if not row: abort(404)
+            if operation=='check':
+                lifecycle=db.execute('SELECT state FROM account_lifecycle WHERE account_id=?',(aid,)).fetchone()
+                if row['platform'] not in SUPPORTED or (lifecycle and lifecycle['state']=='archived'):
+                    raise ValueError('Проверка недоступна')
+                account=dict(row)
+                db.commit()
+                ok,detail=check_connection(root,account)
+                save_check(db,aid,ok,detail)
+                return redirect(url_for('business_account_setup',aid=aid,**{'message' if ok else 'error':detail}),code=303)
+            if operation!='activate': abort(404)
+            activate(db,aid,request.form,load(root))
+            return redirect(url_for('business_account_setup',aid=aid,message='Автопубликации включены. Общий запуск выполняется отдельно.'),code=303)
+        except (ValueError,sqlite3.IntegrityError) as exc:
+            return redirect(url_for('business_account_setup',aid=aid,error=str(exc)),code=303)
+        finally: db.close()
+
     @app.post('/business/accounts/import')
     def business_accounts_import():
         from business_accounts import import_csv
