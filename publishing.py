@@ -84,7 +84,7 @@ def configure_auto(db,account,profile,caption,interval,enabled):
 
 def approve(db,pid):
     with db:
-        return db.execute("UPDATE publications SET status='approved',updated=? WHERE id=? AND status='draft'",(int(time.time()),pid)).rowcount==1
+        return db.execute("UPDATE publications SET status='approved',updated=? WHERE id=? AND status='draft' AND NOT EXISTS(SELECT 1 FROM account_lifecycle l WHERE l.account_id=publications.account_id AND l.state='archived')",(int(time.time()),pid)).rowcount==1
 
 def claim(db,now):
     db.execute('BEGIN IMMEDIATE')
@@ -118,6 +118,11 @@ def telegram(row,path,token):
     chat=result['chat']
     link=('https://t.me/'+chat['username']+'/'+str(result['message_id'])) if chat.get('username') else None
     return str(result['message_id']),link
+
+def recover_interrupted(db):
+    """Only call while holding the exclusive publication lock."""
+    with db:
+        return db.execute("UPDATE publications SET status='uncertain',error='Interrupted upload; reconcile manually',updated=? WHERE status='sending'",(int(time.time()),)).rowcount
 
 def send_one(db,root,sender=None):
     row=claim(db,int(time.time()))
@@ -186,7 +191,7 @@ def main():
         elif args.action=='sync': print(sync_ready(db))
         elif args.action in ('send','run','factory-send'):
             with FileLock(str(root/'publication.lock'),timeout=0):
-                with db: db.execute("UPDATE publications SET status='uncertain',error='Interrupted upload; reconcile manually' WHERE status='sending'")
+                recover_interrupted(db)
                 stop=root/'publication.stop'
                 # The initiating UI clears the stop flag before spawning this process.
                 # Never clear it here: a stop may have arrived during startup.

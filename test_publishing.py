@@ -1,6 +1,6 @@
 import unittest
 from pipeline import connect
-from publishing import init,add_account,enqueue,approve,claim,measure,sync_ready,configure_auto
+from publishing import init,add_account,enqueue,approve,claim,measure,sync_ready,configure_auto,recover_interrupted
 class PublicationTest(unittest.TestCase):
     def setUp(self):
         self.db=init(connect(':memory:'))
@@ -48,3 +48,20 @@ class PublicationTest(unittest.TestCase):
         self.assertIsNotNone(claim(self.db,100))
         with self.db: self.db.execute("UPDATE publications SET status='blocked' WHERE id=1")
         self.assertIsNone(claim(self.db,100))
+
+    def test_interrupted_publication_requires_reconciliation(self):
+        with self.db: self.db.execute('UPDATE accounts SET enabled=1')
+        for i in (1,2):
+            enqueue(self.db,1,i,'test',100)
+            approve(self.db,i)
+        self.assertEqual(claim(self.db,100)['id'],1)
+        self.assertEqual(recover_interrupted(self.db),1)
+        self.assertEqual(recover_interrupted(self.db),0)
+        self.assertEqual(self.db.execute('SELECT status FROM publications WHERE id=1').fetchone()[0],'uncertain')
+        self.assertIsNone(claim(self.db,10000))
+
+    def test_archived_account_cannot_approve_draft(self):
+        enqueue(self.db,1,1,'test',100)
+        with self.db:
+            self.db.execute("INSERT INTO account_lifecycle(account_id,state,updated) VALUES(1,'archived',100)")
+        self.assertFalse(approve(self.db,1))
