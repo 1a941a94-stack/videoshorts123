@@ -65,18 +65,30 @@ def report(db,now):
         'Дневные показатели роликов и отправок — по дате обновления; финансы — по дате записи.'
     ])
 
+def resource_alerts(res):
+    result=[]
+    for label,kind,row in zip(('Дневной','Месячный'),('daily','monthly'),res['budget_health']):
+        if row['exhausted']:
+            result.append(('budget_'+kind,label+' бюджет исчерпан.'))
+        elif row['warning']:
+            result.append(('budget_warning_'+kind,f"{label} бюджет: использовано {row['percent']}%, остаток {rub(row['remaining'])}."))
+    for health,kind,title in [('expired','expired','Истекли услуги'),('soon','renewal','Истекают в течение 7 дней')]:
+        items=[x for x in res['services'] if x['health']==health]
+        if items:
+            lines=[f"{x['supplier']} — {x['name']} ({x['expiry_date']})" for x in items[:10]]
+            result.append((kind,f'{title}: {len(items)}.\n'+'\n'.join(lines)[:1800]))
+    return result
+
 def alerts(db,root):
     import shutil
     from business_resources import state
     from business_library import inventory
     from business_factory import load,forecast
     from factory_controller import state as controller_state
-    if not controller_state(db)['enabled']: return []
-    res=state(db); inv=inventory(db); cfg=load(db)
-    result=[]
-    if any(res['over']): result.append(('budget','Достигнут лимит бюджета инфраструктуры.'))
-    if res['expired']: result.append(('expired',f'Истекло услуг: {res["expired"]}.'))
-    if res['soon']: result.append(('renewal',f'Услуг с окончанием в течение 7 дней: {res["soon"]}.'))
+    res=state(db)
+    result=resource_alerts(res)
+    if not controller_state(db)['enabled']: return result
+    inv=inventory(db); cfg=load(db)
     if shutil.disk_usage(root).free<3*1024**3: result.append(('disk','Свободно менее 3 ГБ на диске.'))
     if not db.execute("SELECT 1 FROM clips WHERE status='pending' LIMIT 1").fetchone():
         result.append(('queue','Очередь исходников пуста.'))
