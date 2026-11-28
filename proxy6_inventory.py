@@ -91,7 +91,13 @@ def state(db):
         coalesce(sum(CASE WHEN active=1 AND expires>? THEN 1 ELSE 0 END),0),
         coalesce(sum(CASE WHEN active=1 AND expires>? AND expires<=? THEN 1 ELSE 0 END),0)
         FROM proxy6_inventory""",(now,now,now+7*86400)).fetchone()
-    return dict(configured=configured(),snapshot=dict(snap) if snap else None,total=counts[0],active=counts[1],soon=counts[2])
+    details=[dict(row) for row in db.execute('SELECT * FROM proxy6_inventory ORDER BY expires,provider_id')]
+    for item in details:
+        item['health']='expired' if item['expires']<=now else 'inactive' if not item['active'] else 'soon' if item['expires']<=now+7*86400 else 'active'
+    age=max(0,now-snap['updated']) if snap else None
+    return dict(configured=configured(),snapshot=dict(snap) if snap else None,total=counts[0],active=counts[1],soon=counts[2],
+                expired=sum(x['health']=='expired' for x in details),inactive=sum(x['health']=='inactive' for x in details),
+                age_seconds=age,stale=age is None or age>=86400,details=details)
 
 def quote(count,period,version):
     if not 1<=count<=1000 or not 1<=period<=90 or version not in (3,4,6):
