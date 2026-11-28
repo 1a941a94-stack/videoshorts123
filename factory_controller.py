@@ -49,10 +49,18 @@ def decision(db,root,configs):
     missing=max(0,forecast(cfg)['reserve']-ready)
     if not missing: return None,'Резерв заполнен',60
     pending=db.execute("SELECT count(*) FROM clips WHERE status='pending' AND mode=?",(item['mode'],)).fetchone()[0]
-    if not pending: return None,'Нет исходников выбранного режима; добавьте разрешённые материалы',300
     from diagnostics import readiness
     issues=[x['name'] for x in readiness(root,item['mode']) if x['required'] and not x['ok']]
     if issues: return None,'Не готова система: '+', '.join(issues),300
+    if item['mode']=='short' and pending<missing and item.get('auto_search'):
+        from incoming_media import ingest
+        db.commit()
+        result=ingest(db,root,missing-pending)
+        pending+=result['added']
+        if result['errors'] or result['added']:
+            from business_factory import event
+            with db: event(db,'intake',f"Входящие материалы: добавлено {result['added']}, ошибок {result['errors']}")
+    if not pending: return None,'Нет исходников; добавьте разрешённые видео в incoming-media и включите автопоиск для короткого режима',300
     from run_configs import resolve
     snap=resolve(root,item)
     # This controller only consumes the existing authorized production queue.

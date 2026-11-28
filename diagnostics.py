@@ -68,5 +68,5 @@ def factory_preflight(db, root, configs):
     add('Подключения API',connected>0,f'Локальные данные: {connected} из {len(accounts)}; удалённый вход не проверен',False)
     if item:
         pending=db.execute("SELECT count(*) FROM clips WHERE status='pending' AND mode=?",(item['mode'],)).fetchone()[0]
-        add('Исходники выбранного режима',pending>0,f'В очереди: {pending}',False)
+        add('Исходники выбранного режима',pending>0,f'В очереди: {pending}; автоимпорт коротких видео из incoming-media при включённом автопоиске',False)
     return checks
