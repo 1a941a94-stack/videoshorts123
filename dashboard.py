@@ -528,14 +528,16 @@ def create_app(root=ROOT):
                     (root/'publication.stop').unlink(missing_ok=True)
                 if operation=='stop':
                     (root/'publication.stop').touch()
-                    if current['run_id'] is not None and job.get('run_id')==current['run_id'] and job['process'] and job['process'].poll() is None:
-                        (root/'factory.stop').touch()
+                    if current['run_id'] is not None:
+                        active=db.execute("SELECT 1 FROM production_runs WHERE id=? AND status IN ('queued','running')",(current['run_id'],)).fetchone()
+                        if active and (job.get('run_id')==current['run_id'] or not (job['process'] and job['process'].poll() is None)):
+                            (root/'factory.stop').touch()
                 db.commit()
             finally: db.close()
         return redirect(url_for('business'),code=303)
 
     def controller_loop():
-        from factory_controller import state,decision,record
+        from factory_controller import state,decision,record,interrupted_run
         from run_configs import load
         from production_runs import create,set_status
         from filelock import FileLock,Timeout
@@ -577,14 +579,25 @@ def create_app(root=ROOT):
                             with db: event(db,'publication',f'Запланировано публикаций: {queued}')
                     else:
                         db.commit()
-                    task,detail,delay=decision(db,root,load(root)['items'])
-                    db.commit()
-                    if not task:
-                        record(db,detail,delay)
-                        continue
-                    goal,snap=task
-                    run_id=create(db,goal,snap)
-                    record(db,f'Запуск партии #{run_id}: до {goal} роликов',60,run_id)
+                    recovery=interrupted_run(db,root,current)
+                    if recovery:
+                        from diagnostics import readiness
+                        import shutil
+                        issues=[x['name'] for x in readiness(root,recovery['mode']) if x['required'] and not x['ok']]
+                        if not allowed or issues or shutil.disk_usage(root).free<3*1024**3:
+                            record(db,'Восстановление партии ожидает готовности ресурсов',300)
+                            continue
+                        run_id=recovery['id']
+                        record(db,f'Восстановление прерванной партии #{run_id}',60,run_id)
+                    else:
+                        task,detail,delay=decision(db,root,load(root)['items'])
+                        db.commit()
+                        if not task:
+                            record(db,detail,delay)
+                            continue
+                        goal,snap=task
+                        run_id=create(db,goal,snap)
+                        record(db,f'Запуск партии #{run_id}: до {goal} роликов',60,run_id)
                 try: launch_run(run_id)
                 except OSError as exc:
                     set_status(db,run_id,'failed',str(exc))

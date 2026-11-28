@@ -20,7 +20,7 @@ def run(db,root,out,run_id,settings):
     scanned=0
     max_scans=3
     with db:
-        db.execute("UPDATE clips SET status='pending' WHERE run_id=? AND status='running'",(run_id,))
+        db.execute("UPDATE clips SET status=CASE WHEN attempts<3 THEN 'pending' ELSE 'failed' END,error='Interrupted production task',updated=CAST(strftime('%s','now') AS INTEGER) WHERE run_id=? AND status='running'",(run_id,))
         db.execute("INSERT INTO production_run_tasks(run_id,clip_id,status,updated) SELECT run_id,id,status,updated FROM clips WHERE run_id=? AND status IN ('done','failed','duplicate','ad_review','ad_rejected') ON CONFLICT(run_id,clip_id) DO UPDATE SET status=excluded.status,updated=excluded.updated",(run_id,))
     set_status(db,run_id,'running')
     try:

@@ -59,3 +59,13 @@ def decision(db,root,configs):
     snap['auto_search']=False
     snap['name']='Автопополнение резерва'
     return (min(1000,missing,pending),snap),'Подготовлена производственная партия',60
+
+
+def interrupted_run(db,root,current):
+    """Called only while holding the exclusive production lock."""
+    if not current['enabled'] or current['run_id'] is None or (root/'factory.stop').exists():
+        return None
+    row=db.execute("SELECT id,mode,status FROM production_runs WHERE id=? AND status IN ('queued','running')",(current['run_id'],)).fetchone()
+    if not row:
+        return None
+    return dict(row)
