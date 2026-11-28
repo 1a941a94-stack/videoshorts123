@@ -44,9 +44,25 @@ def check_connection(root, account):
     """Read-only API verification; never creates a post or clears a restriction."""
     import requests
     platform=account['platform']
-    if platform not in ('telegram','youtube'):
+    if platform not in ('telegram','youtube','instagram'):
         return False,'Удалённая проверка для этого адаптера пока недоступна'
     try:
+        if platform=='instagram':
+            import re
+            version=os.getenv('CLIP_META_API_VERSION','v26.0')
+            dest=str(account['destination'])
+            token=os.getenv(account['token_env'],'').strip()
+            if not token or not re.fullmatch(r'v\d+\.\d+',version) or not re.fullmatch(r'\d{5,30}',dest):
+                return False,'Проверьте токен, версию API и ID профессионального аккаунта'
+            r=requests.get(f'https://graph.facebook.com/{version}/{dest}',
+                headers={'Authorization':'Bearer '+token},params={'fields':'id,username'},
+                timeout=(5,15),allow_redirects=False)
+            data=r.json()
+            if data.get('error',{}).get('code')==190:
+                return False,'Meta: токен недействителен или отозван (190)'
+            if not r.ok or 'error' in data or str(data.get('id'))!=dest:
+                return False,'Meta: доступ к указанному аккаунту не подтверждён'
+            return True,'Meta: доступ к профилю подтверждён; право публикации отдельно не проверено'
         if platform=='telegram':
             token=os.getenv(account['token_env'],'').strip()
             if not token: return False,'Токен не настроен'
@@ -100,6 +116,8 @@ def save_check(db,aid,ok,detail):
         checked=excluded.checked,ok=excluded.ok,detail=excluded.detail,
         last_success=coalesce(excluded.last_success,account_connection_checks.last_success)""",
         (aid,now,int(ok),detail[:300],now if ok else None))
+        if not ok and detail=='Meta: токен недействителен или отозван (190)':
+            db.execute('UPDATE accounts SET enabled=0 WHERE id=?',(aid,))
 
 
 def decorate_checks(db,accounts):
