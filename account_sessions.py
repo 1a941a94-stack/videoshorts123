@@ -39,3 +39,45 @@ def instructions(account):
         'tiktok':'Адаптер публикаций пока не подключён.',
         'vk':'Адаптер публикаций пока не подключён.'
     }.get(p,'Подключение не поддерживается')
+
+def check_connection(root, account):
+    """Read-only API verification; never creates a post or clears a restriction."""
+    import requests
+    platform=account['platform']
+    if platform not in ('telegram','youtube'):
+        return False,'Удалённая проверка для этого адаптера пока недоступна'
+    try:
+        if platform=='telegram':
+            token=os.getenv(account['token_env'],'').strip()
+            if not token: return False,'Токен не настроен'
+            base='https://api.telegram.org/bot'+token
+            def get(method,params=None):
+                r=requests.get(base+'/'+method,params=params,timeout=10)
+                data=r.json()
+                if not r.ok or not data.get('ok'): raise ValueError('Telegram API rejected request')
+                return data['result']
+            bot=get('getMe')
+            chat=get('getChat',{'chat_id':account['destination']})
+            member=get('getChatMember',{'chat_id':chat['id'],'user_id':bot['id']})
+            allowed=member.get('status')=='creator' or (member.get('status')=='administrator' and member.get('can_post_messages') is True)
+            return allowed,'Право публикации в канале подтверждено' if allowed else 'Нет подтверждённого права публикации в канале'
+        from youtube_publish import credentials_path,SCOPES,verify
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+        import httplib2
+        from google_auth_httplib2 import AuthorizedHttp
+        path=credentials_path(root,account['destination'])
+        if not path.is_file(): return False,'OAuth не настроен'
+        creds=Credentials.from_authorized_user_file(str(path),SCOPES)
+        if not creds.valid:
+            request=Request()
+            def bounded(*args,**kwargs):
+                kwargs['timeout']=10
+                return request(*args,**kwargs)
+            creds.refresh(bounded)
+        api=build('youtube','v3',http=AuthorizedHttp(creds,http=httplib2.Http(timeout=10)),cache_discovery=False)
+        verify(api,account['destination'])
+        return True,'OAuth и ID канала подтверждены'
+    except Exception:
+        return False,'API недоступен или подключение не подтверждено; проверьте настройки'

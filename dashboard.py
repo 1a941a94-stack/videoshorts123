@@ -382,6 +382,23 @@ def create_app(root=ROOT):
             return redirect(url_for('business_accounts',error=str(exc)),code=303)
         finally: db.close()
 
+    @app.post('/business/accounts/<int:aid>/check-connection')
+    def business_account_check_connection(aid):
+        from account_sessions import check_connection
+        db=init(connect(dbpath))
+        try:
+            row=db.execute('SELECT * FROM accounts WHERE id=?',(aid,)).fetchone()
+            if not row: abort(404)
+            from account_lifecycle import init as lifecycle_init
+            lifecycle_init(db)
+            lifecycle=db.execute("SELECT state FROM account_lifecycle WHERE account_id=?",(aid,)).fetchone()
+            if lifecycle and lifecycle['state']=='archived':
+                return redirect(url_for('business_accounts',error='Аккаунт в архиве'),code=303)
+            account=dict(row)
+        finally: db.close()
+        ok,detail=check_connection(root,account)
+        return redirect(url_for('business_accounts',**{'message' if ok else 'error':detail}),code=303)
+
     @app.post('/business/accounts/<int:aid>/lifecycle')
     def business_account_lifecycle(aid):
         from account_lifecycle import change
