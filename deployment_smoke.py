@@ -19,10 +19,11 @@ def get(path):
         assert response.status == 200, path
         return response.read().decode()
 
-def post(path, token):
-    data = urllib.parse.urlencode({'csrf': token}).encode()
+def post(path, token, **fields):
+    data = urllib.parse.urlencode({'csrf': token, **fields}).encode()
     with client.open(base + path, data=data, timeout=20) as response:
         assert response.status == 200, path
+        return response.geturl()
 
 def controller():
     with sqlite3.connect('/data/clipfactory.sqlite3') as db:
@@ -35,8 +36,18 @@ for path in ('/healthz', '/', '/business', '/business/accounts', '/business/cale
     print('HTTP OK', path)
 token = re.search(r'name="csrf" value="([^"]+)"', get('/business')).group(1)
 assert controller() == 0
+# An unconfigured installation must refuse to start.
+url = post('/business/controller/start', token)
+assert 'error=' in url, url
+assert controller() == 0
+print('Unconfigured start rejected')
+# Configure an isolated local-only production profile through the actual UI.
+post('/run-configs', token, name='ci-smoke', mode='long', goal='1')
+url = post('/business/settings', token, configuration='ci-smoke')
+assert 'error=' not in url, url
 try:
-    post('/business/controller/start', token)
+    url = post('/business/controller/start', token)
+    assert 'error=' not in url, url
     assert controller() == 1
     print('Controller start persisted')
 finally:
