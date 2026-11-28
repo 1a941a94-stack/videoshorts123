@@ -226,13 +226,11 @@ def process(db, out, banner=None, campaigns=None, mode='long', *, claimed=None):
                 from short_media import render_short
                 render_short(source,b,tmp,selected,words=transcript)
             else: render(source,a,b,tmp,selected)
-            quality=None
-            if mode=='short':
-                from quality import inspect,verify
-                from source_media import stage
-                stage('quality','Checking rendered output')
-                require_audio=any(s.get('codec_type')=='audio' for s in inspect(source).get('streams',[]))
-                quality=json.dumps(verify(tmp,b-a,require_audio))
+            from quality import inspect,verify
+            from source_media import stage
+            stage('quality','Checking rendered output')
+            require_audio=any(s.get('codec_type')=='audio' for s in inspect(source).get('streams',[]))
+            quality=json.dumps(verify(tmp,b-a,require_audio))
         prune_cache(cache)
         print('CF_STAGE '+json.dumps({'stage':'save','detail':f'#{row["id"]}'},ensure_ascii=True),flush=True)
         tmp.replace(dest)

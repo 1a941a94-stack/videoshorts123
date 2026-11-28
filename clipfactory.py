@@ -24,7 +24,7 @@ def render(source, start, end, output, banner=None):
         cmd += media_input(spec.path)
         vf+=spec.filter(end-start)
     else: vf+='[v]'
-    cmd+=['-filter_complex_threads','1','-filter_complex',vf,'-map','[v]','-map','0:a?','-t',str(end-start),'-c:v','libx264','-threads','2','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart','-map_metadata','-1','-map_metadata:s:v','-1','-map_metadata:s:a','-1','-map_chapters','-1',str(output)]
+    cmd+=['-filter_complex_threads','1','-filter_complex',vf,'-map','[v]','-map','0:a:0?','-t',str(end-start),'-c:v','libx264','-threads','2','-preset','veryfast','-crf','22','-pix_fmt','yuv420p','-c:a','aac','-movflags','+faststart','-map_metadata','-1','-map_metadata:s:v','-1','-map_metadata:s:a','-1','-map_chapters','-1',str(output)]
     if os.getenv('CLIP_CAPTIONS','0') == '1':
         from captions import prepare
         with tempfile.TemporaryDirectory() as folder:
@@ -37,10 +37,10 @@ def render(source, start, end, output, banner=None):
             idx=cmd.index('-filter_complex')+1
             cmd[idx]=cmd[idx].removesuffix('[v]')+'[pre];[pre]ass=captions.ass[v]'
             print('CF_STAGE '+json.dumps({'stage':'render','detail':''}),flush=True)
-            subprocess.run(cmd,check=True,cwd=folder)
+            subprocess.run(cmd,check=True,cwd=folder,timeout=900)
     else:
         print('CF_STAGE '+json.dumps({'stage':'render','detail':''}),flush=True)
-        subprocess.run(cmd,check=True)
+        subprocess.run(cmd,check=True,timeout=900)
 
 def download(url, clip, target):
     import shutil
